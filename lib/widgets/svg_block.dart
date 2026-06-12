@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 
 /// Renders SVG as a bitmap thumbnail in the chat bubble.
 /// Tap to open fullscreen with pinch-to-zoom.
@@ -70,6 +73,31 @@ class _SvgBlockState extends State<SvgBlock> {
     );
   }
 
+  Future<void> _downloadSvg() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final svgDir = Directory(p.join(dir.path, 'svg'));
+      if (!await svgDir.exists()) await svgDir.create(recursive: true);
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final file = File(p.join(svgDir.path, 'svg_$timestamp.svg'));
+      await file.writeAsString(widget.svgString);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已保存到 ${file.path}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -97,10 +125,49 @@ class _SvgBlockState extends State<SvgBlock> {
                       color: _failed ? theme.colorScheme.error : theme.colorScheme.primary)),
               if (_image != null) ...[
                 const Spacer(),
-                Text('点击放大', style: theme.textTheme.labelSmall
-                    ?.copyWith(color: theme.colorScheme.outline)),
-                const SizedBox(width: 3),
-                Icon(Icons.zoom_in, size: 13, color: theme.colorScheme.outline),
+                GestureDetector(
+                  onTap: _downloadSvg,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.download, size: 14,
+                            color: theme.colorScheme.primary),
+                        const SizedBox(width: 4),
+                        Text('下载', style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: _openFullscreen,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.zoom_in, size: 14,
+                            color: theme.colorScheme.primary),
+                        const SizedBox(width: 4),
+                        Text('放大', style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ]),
             const SizedBox(height: 8),

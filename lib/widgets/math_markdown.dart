@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1086,12 +1087,24 @@ class _InlineRichSegment extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.zoom_in, size: 14,
-                            color: theme.colorScheme.primary),
-                        const SizedBox(width: 4),
-                        Text('放大', style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                        )),
+                        _ActionChip(
+                          icon: Icons.copy,
+                          label: '复制',
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: stripped));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)),
+                            );
+                          },
+                          theme: theme,
+                        ),
+                        const SizedBox(width: 6),
+                        _ActionChip(
+                          icon: Icons.zoom_in,
+                          label: '放大',
+                          onTap: () => _openBlockquoteFullscreen(context, stripped, baseStyle),
+                          theme: theme,
+                        ),
                       ],
                     ),
                   ),
@@ -1208,6 +1221,45 @@ class _InlineMatch {
   const _InlineMatch(this.start, this.end, this.formula);
 }
 
+/// Reusable action chip for code/blockquote toolbar buttons.
+class _ActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  const _ActionChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primary.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: theme.colorScheme.primary),
+            const SizedBox(width: 4),
+            Text(label, style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Code block — rendered WITHOUT scroll wrapper so all content is visible
 // ---------------------------------------------------------------------------
@@ -1260,26 +1312,23 @@ class _CodeBlockWidget extends StatelessWidget {
                       ),
                     ),
                   const Spacer(),
-                  GestureDetector(
+                  _ActionChip(
+                    icon: Icons.copy,
+                    label: '复制',
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: code));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)),
+                      );
+                    },
+                    theme: theme,
+                  ),
+                  const SizedBox(width: 6),
+                  _ActionChip(
+                    icon: Icons.zoom_in,
+                    label: '放大',
                     onTap: () => _openFullscreen(context, codeStyle),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.zoom_in, size: 14,
-                              color: theme.colorScheme.primary),
-                          const SizedBox(width: 4),
-                          Text('放大', style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.primary,
-                          )),
-                        ],
-                      ),
-                    ),
+                    theme: theme,
                   ),
                 ],
               ),

@@ -82,11 +82,6 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         title: const Text('ThForu'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.star_outline),
-            tooltip: '收藏',
-            onPressed: () => Navigator.pushNamed(context, '/favorites'),
-          ),
-          IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
           ),

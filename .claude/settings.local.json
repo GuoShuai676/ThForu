@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(flutter doctor)",
+      "PowerShell(powershell -Command \"Invoke-WebRequest -Uri 'https://redirector.gvt1.com/edgedl/android/studio/install/2024.3.1.13/android-studio-2024.3.1.13-windows.exe' -OutFile '$env:USERPROFILE\\\\Downloads\\\\android-studio.exe'\" -ErrorAction Stop)",
+      "PowerShell(powershell -Command \"Invoke-WebRequest -Uri 'https://mirrors.tuna.tsinghua.edu.cn/Android/studio/win/android-studio-latest-windows.exe' -OutFile '$env:USERPROFILE\\\\Downloads\\\\android-studio-tsinghua.exe'\" -ErrorAction Stop)"
+    ]
+  }
+}

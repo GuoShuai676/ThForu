@@ -1,0 +1,809 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../state/providers.dart';
+import '../state/formula_display_notifier.dart';
+import 'formula_viewer.dart';
+import 'svg_block.dart';
+
+/// Renders markdown content with LaTeX math support.
+class MathMarkdown extends StatelessWidget {
+  final String data;
+  final MarkdownStyleSheet? styleSheet;
+  final bool selectable;
+  final bool forceInline;
+
+  const MathMarkdown({
+    super.key,
+    required this.data,
+    this.styleSheet,
+    this.selectable = true,
+    this.forceInline = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    try {
+      // ── Step 1: Extract markdown tables before any LaTeX processing ──
+      final tableInfo = _extractTables(data);
+      final cleanData = tableInfo.cleanText;
+      final tables = tableInfo.tables;
+
+      // ── Step 2: SVG detection ──
+      Widget? svgWidget;
+      try {
+        final lower = data.toLowerCase();
+        final s = lower.indexOf('<svg');
+        if (s >= 0) {
+          final e = lower.indexOf('</svg>', s + 4);
+          if (e >= 0 && e - s < 100000) {
+            svgWidget = SvgBlock(svgString: data.substring(s, e + 6).trim());
+          }
+        }
+      } catch (_) {}
+
+      // ── Step 3: LaTeX preprocessing ──
+      String processed;
+      if (_cachedLatexInput == cleanData) {
+        processed = _cachedLatexOutput!;
+      } else {
+        _cachedLatexInput = cleanData;
+        _cachedLatexOutput = _preprocessLatex(cleanData);
+        processed = _cachedLatexOutput!;
+      }
+      final segments = _parseMathSegments(processed);
+
+      // ── Step 4: Fast path for plain markdown ──
+      if (segments.length == 1 &&
+          segments.first.type == _SegmentType.markdown &&
+          svgWidget == null &&
+          tables.isEmpty) {
+        return MarkdownBody(
+          data: data,
+          selectable: selectable,
+          styleSheet: styleSheet,
+        );
+      }
+
+      // ── Step 5: Build widget tree ──
+      return _MathSegments(
+        segments: segments,
+        styleSheet: styleSheet,
+        selectable: selectable,
+        tables: tables,
+        svgWidget: svgWidget,
+        forceInline: forceInline,
+      );
+    } catch (_) {
+      return MarkdownBody(
+        data: data,
+        selectable: selectable,
+        styleSheet: styleSheet,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Table extraction �?run BEFORE LaTeX preprocessing so formulas inside
+// table cells stay intact.  Each table is replaced with a placeholder that
+// gets resolved during rendering.
+// ---------------------------------------------------------------------------
+
+final _tablePlaceholderRe = RegExp(r'\x00TABLE_(\d+)\x00');
+
+({String cleanText, Map<String, String> tables}) _extractTables(String input) {
+  final tables = <String, String>{};
+  final lines = input.split('\n');
+  final result = <String>[];
+  int i = 0;
+  int idx = 0;
+
+  while (i < lines.length) {
+    final line = lines[i].trim();
+    // Potential table header?
+    if (line.startsWith('|') && line.endsWith('|') && '|'.allMatches(line).length >= 2) {
+      // Next line must be a separator (|---|---| or |:---|:---:| etc.)
+      if (i + 1 < lines.length) {
+        final sep = lines[i + 1].trim();
+        final stripped = sep.replaceAll(RegExp(r'[\s\|\-:]+'), '');
+        if (stripped.isEmpty && sep.contains('-') && sep.contains('|')) {
+          // Found a table �?collect header + separator + all body rows.
+          final buf = StringBuffer();
+          buf.write(line); // header
+          buf.write('\n');
+          buf.write(lines[i + 1]); // separator (original whitespace)
+          int j = i + 2;
+          while (j < lines.length) {
+            final row = lines[j].trim();
+            if (!row.startsWith('|') || !row.endsWith('|')) break;
+            buf.write('\n');
+            buf.write(lines[j]);
+            j++;
+          }
+          final placeholder = '\x00TABLE_${idx}\x00';
+          tables[placeholder] = buf.toString().trim();
+          result.add(placeholder);
+          idx++;
+          i = j;
+          continue;
+        }
+      }
+    }
+    result.add(lines[i]);
+    i++;
+  }
+
+  return (cleanText: result.join('\n'), tables: tables);
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+final _displayMathRegex = RegExp(r'\$\$([\s\S]+?)\$\$');
+final _inlineMathRegex = RegExp(r'(?<!\$)\$(?!\$)([^$]+?)\$(?!\$)');
+final _stripDisplayDollar = RegExp(r'\$\$[\s\S]+?\$\$');
+final _stripDisplayBracket = RegExp(r'\\\[[\s\S]+?\\\]');
+final _stripInlineDollar = RegExp(r'(?<!\$)\$(?!\$)[^$]+?\$(?!\$)');
+final _stripInlineParen = RegExp(r'\\\([^)]+?\\\)');
+final _inlineParenRegex = RegExp(r'\\\(([^)]+?)\\\)');
+
+final _mathmlRegex = RegExp(r'<math\b[\s\S]+?</math>', caseSensitive: false);
+
+String? _cachedLatexInput;
+String? _cachedLatexOutput;
+
+enum _SegmentType { markdown, displayMath, inlineMath, mathml, tablePlaceholder }
+
+class _MathSegment {
+  final _SegmentType type;
+  final String content;
+  const _MathSegment(this.type, this.content);
+}
+
+({String content, int end, _SegmentType type})? _matchDisplayAt(
+    String input, int pos) {
+  final dm = _displayMathRegex.matchAsPrefix(input, pos);
+  if (dm != null) {
+    return (content: dm.group(1)!.trim(), end: dm.end, type: _SegmentType.displayMath);
+  }
+  if (input.startsWith(r'\[', pos)) {
+    final endIdx = input.indexOf(r'\]', pos + 2);
+    if (endIdx >= 0) {
+      return (
+        content: input.substring(pos + 2, endIdx).trim(),
+        end: endIdx + 2,
+        type: _SegmentType.displayMath,
+      );
+    }
+  }
+  final ml = _mathmlRegex.matchAsPrefix(input, pos);
+  if (ml != null) {
+    return (content: ml.group(0)!.trim(), end: ml.end, type: _SegmentType.mathml);
+  }
+  return null;
+}
+
+int? _findNextDisplayStart(String input) {
+  final dlr = input.indexOf(r'$$');
+  final brk = input.indexOf(r'\[');
+  if (dlr < 0 && brk < 0) return null;
+  if (dlr < 0) return brk;
+  if (brk < 0) return dlr;
+  return dlr < brk ? dlr : brk;
+}
+
+List<_MathSegment> _parseMathSegments(String input) {
+  final segments = <_MathSegment>[];
+  int pos = 0;
+
+  while (pos < input.length) {
+    // Table placeholder?
+    final tp = _tablePlaceholderRe.matchAsPrefix(input, pos);
+    if (tp != null) {
+      segments.add(_MathSegment(_SegmentType.tablePlaceholder, tp.group(0)!));
+      pos = tp.end;
+      continue;
+    }
+
+    final match = _matchDisplayAt(input, pos);
+    if (match != null) {
+      segments.add(_MathSegment(match.type, match.content));
+      pos = match.end;
+      continue;
+    }
+
+    final remaining = input.substring(pos);
+    final nextStart = _findNextDisplayStart(remaining);
+
+    if (nextStart != null && nextStart > 0) {
+      segments
+          .addAll(_parseInlineSegments(remaining.substring(0, nextStart)));
+      pos += nextStart;
+    } else if (nextStart == 0) {
+      final delimLen = remaining.startsWith(r'$$') ? 2
+          : remaining.startsWith(r'\[') ? 2
+          : 1;
+      segments.add(_MathSegment(
+          _SegmentType.markdown, remaining.substring(0, delimLen)));
+      pos += delimLen;
+    } else {
+      segments.addAll(_parseInlineSegments(remaining));
+      break;
+    }
+  }
+
+  return _collapseMarkdown(segments);
+}
+
+List<_MathSegment> _parseInlineSegments(String input) {
+  final tp = _tablePlaceholderRe.firstMatch(input);
+  if (tp != null) {
+    final segments = <_MathSegment>[];
+    if (tp.start > 0) {
+      segments.addAll(_parseInlineSegments(input.substring(0, tp.start)));
+    }
+    segments.add(_MathSegment(_SegmentType.tablePlaceholder, tp.group(0)!));
+    if (tp.end < input.length) {
+      segments.addAll(_parseInlineSegments(input.substring(tp.end)));
+    }
+    return segments;
+  }
+  final segments = <_MathSegment>[];
+  final matches = <({int start, int end, String content})>[];
+
+  for (final m in _inlineMathRegex.allMatches(input)) {
+    matches.add((start: m.start, end: m.end, content: m.group(1)!.trim()));
+  }
+  for (final m in _inlineParenRegex.allMatches(input)) {
+    matches.add((start: m.start, end: m.end, content: m.group(1)!.trim()));
+  }
+
+  matches.sort((a, b) => a.start.compareTo(b.start));
+  final filtered = <({int start, int end, String content})>[];
+  for (final m in matches) {
+    if (filtered.isEmpty || m.start >= filtered.last.end) {
+      filtered.add(m);
+    }
+  }
+
+  int pos = 0;
+  for (final m in filtered) {
+    if (pos < m.start) {
+      segments.add(_MathSegment(
+          _SegmentType.markdown, input.substring(pos, m.start)));
+    }
+    segments.add(_MathSegment(_SegmentType.inlineMath, m.content));
+    pos = m.end;
+  }
+
+  if (pos < input.length) {
+    segments.add(
+        _MathSegment(_SegmentType.markdown, input.substring(pos)));
+  }
+
+  return segments;
+}
+
+List<_MathSegment> _collapseMarkdown(List<_MathSegment> segments) {
+  final collapsed = <_MathSegment>[];
+  for (final seg in segments) {
+    if (collapsed.isNotEmpty &&
+        collapsed.last.type == _SegmentType.markdown &&
+        seg.type == _SegmentType.markdown) {
+      collapsed.last = _MathSegment(
+        _SegmentType.markdown,
+        collapsed.last.content + seg.content,
+      );
+    } else {
+      collapsed.add(seg);
+    }
+  }
+  return collapsed;
+}
+
+// ---------------------------------------------------------------------------
+// LaTeX pre-processing
+// ---------------------------------------------------------------------------
+
+const _latexCommands = [
+  r'\frac', r'\dfrac', r'\tfrac', r'\sqrt', r'\sum', r'\int', r'\prod',
+  r'\lim', r'\log', r'\ln', r'\sin', r'\cos', r'\tan', r'\cot',
+  r'\alpha', r'\beta', r'\gamma', r'\delta', r'\epsilon', r'\theta',
+  r'\lambda', r'\mu', r'\pi', r'\sigma', r'\omega', r'\phi',
+  r'\infty', r'\partial', r'\nabla', r'\cdot', r'\times', r'\div',
+  r'\pm', r'\leq', r'\geq', r'\neq', r'\approx', r'\equiv',
+  r'\rightarrow', r'\Rightarrow', r'\leftarrow',
+  r'\text', r'\textbf', r'\textit', r'\texttt',
+  r'\begin', r'\end', r'\boxed',
+  r'\left', r'\right', r'\bigl', r'\bigr', r'\Big', r'\bigg',
+  r'\overline', r'\underline', r'\hat', r'\bar', r'\vec', r'\dot',
+  r'\mathbb', r'\mathcal', r'\mathbf',
+  r'\binom', r'\dbinom', r'\tbinom',
+  r'\displaystyle', r'\textstyle', r'\scriptstyle',
+  r'\prime', r'\not', r'\neg',
+];
+
+final _latexRegex = () {
+  final cmdPattern = _latexCommands.map((c) => RegExp.escape(c)).join('|');
+  return RegExp(
+    '($cmdPattern)'
+    r'(?:\{[^}]*\})*'
+    r'(?:_{[^}]*})?'
+    r'(?:\^{[^}]*})?'
+    r'(?:_{[^}]*})?',
+  );
+}();
+
+String _preprocessLatex(String input) {
+  if (!input.contains(r'\')) return input;
+  if (input.length > 20000) return input;
+
+  final stripped = input
+      .replaceAll(_stripDisplayDollar, '')
+      .replaceAll(_stripDisplayBracket, '')
+      .replaceAll(_stripInlineDollar, '')
+      .replaceAll(_stripInlineParen, '');
+
+  final hasLatex = _latexCommands.any((cmd) => stripped.contains(cmd));
+  if (!hasLatex) return input;
+
+  final paragraphs = input.split('\n\n');
+  final result = <String>[];
+
+  for (final para in paragraphs) {
+    final trimmed = para.trim();
+    if (trimmed.isEmpty) { result.add(para); continue; }
+    if (trimmed.startsWith(r'$$') || trimmed.startsWith(r'\[')) { result.add(para); continue; }
+    if (_looksLikeMarkdown(trimmed)) { result.add(para); continue; }
+
+    final matches = _latexRegex.allMatches(para).toList();
+    if (matches.isEmpty) { result.add(para); continue; }
+
+    final hasBegin = trimmed.contains(r'\begin{');
+    final hasChinese = RegExp(r'[一-鿿]').hasMatch(trimmed);
+
+    int covered = 0;
+    for (final m in matches) { covered += m.end - m.start; }
+    final ratio = trimmed.isNotEmpty ? covered / trimmed.length : 0;
+
+    if (hasBegin && !hasChinese) {
+      var cleaned = _stripInlineParens(trimmed);
+      cleaned = _stripSurroundingDollars(cleaned);
+      result.add('\$\$$cleaned\$\$');
+    } else if (hasChinese || ratio < 0.40) {
+      var processed = para;
+      for (final m in matches.reversed) {
+        if (processed.contains(r'$')) break;
+        processed =
+            '${processed.substring(0, m.start)}\$${processed.substring(m.start, m.end)}\$${processed.substring(m.end)}';
+      }
+      result.add(processed);
+    } else {
+      var cleaned = _stripInlineParens(trimmed);
+      cleaned = _stripSurroundingDollars(cleaned);
+      result.add('\$\$$cleaned\$\$');
+    }
+  }
+
+  return result.join('\n\n');
+}
+
+bool _looksLikeMarkdown(String text) {
+  if (RegExp(r'^#{1,6}\s').hasMatch(text)) return true;
+  if (text.startsWith(r'```')) return true;
+  if (RegExp(r'^[\*\-\+]\s', multiLine: true).hasMatch(text)) return true;
+  if (text.startsWith('>')) return true;
+  if (text.contains('|') && text.contains('---')) return true;
+  if (RegExp(r'\[.*\]\(.*\)').hasMatch(text)) return true;
+  if (RegExp(r'<(?!math\b)[a-zA-Z]+[^>]*>').hasMatch(text)) return true;
+  return false;
+}
+
+bool _hasNonLatexChars(String text) {
+  if (RegExp(r'(^|\n)#{1,6}\s', multiLine: true).hasMatch(text)) return true;
+  if (text.contains('//') || text.contains('/*')) return true;
+  if (RegExp(r'https?://').hasMatch(text)) return true;
+  return false;
+}
+
+String _stripInlineParens(String text) {
+  return text.replaceAll(r'\(', '').replaceAll(r'\)', '');
+}
+
+String _stripSurroundingDollars(String text) {
+  var t = text.trim();
+  while (t.startsWith(r'$$')) { t = t.substring(2).trimLeft(); }
+  while (t.endsWith(r'$$')) { t = t.substring(0, t.length - 2).trimRight(); }
+  if (t.startsWith(r'$') && !t.startsWith(r'$$')) { t = t.substring(1).trimLeft(); }
+  if (t.endsWith(r'$') && !t.endsWith(r'$$')) { t = t.substring(0, t.length - 1).trimRight(); }
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+class _MathSegments extends StatelessWidget {
+  final List<_MathSegment> segments;
+  final MarkdownStyleSheet? styleSheet;
+  final bool selectable;
+  final Map<String, String> tables;
+  final Widget? svgWidget;
+  final bool forceInline;
+
+  const _MathSegments({
+    required this.segments,
+    this.styleSheet,
+    this.selectable = true,
+    required this.tables,
+    this.svgWidget,
+    this.forceInline = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+    final inlineBuffer = <Widget>[];
+
+    void flushInline() {
+      if (inlineBuffer.isEmpty) return;
+      if (inlineBuffer.length == 1) {
+        children.add(inlineBuffer.single);
+      } else {
+        children.add(Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 2,
+            children: inlineBuffer.toList(),
+          ),
+        ));
+      }
+      inlineBuffer.clear();
+    }
+
+    for (final seg in segments) {
+      if (seg.type == _SegmentType.tablePlaceholder) {
+        flushInline();
+        final tableData = tables[seg.content];
+        if (tableData != null) {
+          children.add(_TableBlock(
+            tableMarkdown: tableData,
+            styleSheet: styleSheet,
+            selectable: selectable,
+          ));
+        }
+        continue;
+      }
+
+      switch (seg.type) {
+        case _SegmentType.markdown:
+          inlineBuffer.add(MarkdownBody(
+            data: seg.content,
+            selectable: selectable,
+            styleSheet: styleSheet,
+          ));
+        case _SegmentType.inlineMath:
+          inlineBuffer.add(RepaintBoundary(
+            child: _InlineMathBadge(formula: seg.content, styleSheet: styleSheet),
+          ));
+        case _SegmentType.displayMath:
+          flushInline();
+          if (forceInline) {
+            children.add(_InlineMathBadge(formula: seg.content, styleSheet: styleSheet));
+          } else {
+            children.add(_DisplayMathBox(formula: seg.content));
+          }
+        case _SegmentType.mathml:
+          flushInline();
+          children.add(RepaintBoundary(child: _MathmlBlock(mathml: seg.content)));
+        case _SegmentType.tablePlaceholder:
+          break; // handled above
+      }
+    }
+    flushInline();
+
+    if (svgWidget != null) {
+      children.add(const SizedBox(height: 8));
+      children.add(svgWidget!);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Table block
+// ---------------------------------------------------------------------------
+
+class _TableBlock extends StatelessWidget {
+  final String tableMarkdown;
+  final MarkdownStyleSheet? styleSheet;
+  final bool selectable;
+
+  const _TableBlock({
+    required this.tableMarkdown,
+    this.styleSheet,
+    this.selectable = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rows = _parse();
+
+    if (rows.isEmpty || rows.length < 2) {
+      return MarkdownBody(
+          data: tableMarkdown, selectable: selectable, styleSheet: styleSheet);
+    }
+
+    final header = rows.first;
+    final body = rows.sublist(1);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Table(
+          border: TableBorder.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+            width: 0.5,
+          ),
+          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+          children: [
+            TableRow(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+              ),
+              children: header.map((c) => _cell(c, theme, bold: true)).toList(),
+            ),
+            ...body.map((row) => TableRow(
+              children: row.map((c) => _cell(c, theme)).toList(),
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cell(String text, ThemeData theme, {bool bold = false}) {
+    final baseStyle = styleSheet?.p ?? theme.textTheme.bodyMedium;
+    final cellStyle = (baseStyle ?? const TextStyle()).copyWith(
+      fontWeight: bold ? FontWeight.w600 : FontWeight.normal,
+      fontSize: (baseStyle?.fontSize ?? 14) * 0.92,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      child: MathMarkdown(
+        data: text,
+        selectable: selectable,
+        forceInline: true,
+        styleSheet: MarkdownStyleSheet(
+          p: cellStyle,
+          code: cellStyle.copyWith(
+              fontFamily: 'monospace',
+              fontSize: (cellStyle.fontSize ?? 13) * 0.9),
+          codeblockDecoration: const BoxDecoration(),
+        ),
+      ),
+    );
+  }
+
+  List<List<String>> _parse() {
+    final lines = tableMarkdown.trim().split('\n');
+    final rows = <List<String>>[];
+    int? colCount;
+
+    for (final line in lines) {
+      final t = line.trim();
+      if (!t.startsWith('|') || !t.endsWith('|')) continue;
+      // Skip separator lines
+      final stripped = t.replaceAll(RegExp(r'[\s\|\-:]+'), '');
+      if (stripped.isEmpty && t.contains('-')) continue;
+
+      var parts = t.split('|');
+      if (parts.isNotEmpty && parts.first.isEmpty) parts = parts.sublist(1);
+      if (parts.isNotEmpty && parts.last.isEmpty) parts = parts.sublist(0, parts.length - 1);
+      final cells = parts.map((c) => c.trim()).toList();
+
+      if (colCount == null) colCount = cells.length;
+      if (cells.length != colCount) continue;
+      rows.add(cells);
+    }
+
+    return rows;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Display math box
+// ---------------------------------------------------------------------------
+
+class _DisplayMathBox extends ConsumerWidget {
+  final String formula;
+  const _DisplayMathBox({required this.formula});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final displayMode = ref.watch(formulaDisplayProvider);
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: GestureDetector(
+          onTap: () => FormulaViewer.show(context, formula, displayMode),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                  theme.colorScheme.tertiaryContainer.withValues(alpha: 0.25),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.30),
+                width: 1.5,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.functions, size: 14, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Text('公式', style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.primary, fontWeight: FontWeight.w600)),
+                ]),
+                const SizedBox(height: 12),
+                Center(child: _buildMath(theme, displayMode)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMath(ThemeData theme, FormulaDisplayMode mode) {
+    if (_hasNonLatexChars(formula)) return _buildFallback(theme);
+    try {
+      final mathWidget = Math.tex(
+        formula,
+        textStyle: theme.textTheme.titleLarge?.copyWith(
+            fontSize: 18, color: theme.colorScheme.onSurface),
+        mathStyle: MathStyle.display,
+      );
+      return switch (mode) {
+        FormulaDisplayMode.scroll => SingleChildScrollView(
+            scrollDirection: Axis.horizontal, child: mathWidget),
+        FormulaDisplayMode.scale =>
+          FittedBox(fit: BoxFit.scaleDown, child: mathWidget),
+      };
+    } catch (_) {
+      return _buildFallback(theme);
+    }
+  }
+
+  Widget _buildFallback(ThemeData theme) {
+    return SelectableText(
+      formula,
+      style: TextStyle(
+        fontFamily: 'monospace', fontSize: 17, height: 1.6,
+        color: theme.colorScheme.onSurface, letterSpacing: 0.3,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inline math badge
+// ---------------------------------------------------------------------------
+
+class _InlineMathBadge extends StatelessWidget {
+  final String formula;
+  final MarkdownStyleSheet? styleSheet;
+  const _InlineMathBadge({required this.formula, this.styleSheet});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseStyle = styleSheet?.p ?? theme.textTheme.bodyMedium ?? const TextStyle();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: theme.colorScheme.primary.withValues(alpha: 0.20)),
+        ),
+        child: _buildMath(theme, baseStyle),
+      ),
+    );
+  }
+
+  Widget _buildMath(ThemeData theme, TextStyle baseStyle) {
+    try {
+      return Math.tex(
+        formula,
+        mathStyle: MathStyle.text,
+        textStyle: TextStyle(
+          fontSize: (baseStyle.fontSize ?? 14) * 0.92,
+          color: theme.colorScheme.primary,
+        ),
+      );
+    } catch (_) {
+      return Text(
+        formula,
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: (baseStyle.fontSize ?? 14) * 0.92,
+          color: theme.colorScheme.primary,
+          height: 1.4,
+        ),
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MathML block
+// ---------------------------------------------------------------------------
+
+class _MathmlBlock extends StatelessWidget {
+  final String mathml;
+  const _MathmlBlock({required this.mathml});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: theme.colorScheme.tertiary.withValues(alpha: 0.35),
+              width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.code, size: 14, color: theme.colorScheme.tertiary),
+              const SizedBox(width: 6),
+              Text('MathML', style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.tertiary, fontWeight: FontWeight.w600)),
+            ]),
+            const SizedBox(height: 8),
+            SelectableText(
+              mathml.replaceAll('><', '>\n<'),
+              style: TextStyle(
+                fontFamily: 'monospace', fontSize: 13, height: 1.5,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

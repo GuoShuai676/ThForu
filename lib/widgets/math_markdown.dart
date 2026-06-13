@@ -349,17 +349,13 @@ class _MathCell extends StatelessWidget {
       fontWeight: bold ? FontWeight.w600 : null,
     );
 
-    // No formulas → plain text, works with IntrinsicColumnWidth
-    if (!content.contains(r'$')) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        child: Text(content, style: style, softWrap: true),
-      );
-    }
-
-    // Has formulas → extract them, render table with placeholders,
-    // then overlay rendered LaTeX on top using Stack + LayoutBuilder
-    return _FormulaCell(content: content, style: style);
+    // All table cells use Text (no LayoutBuilder, no Math.tex)
+    // This avoids the IntrinsicColumnWidth conflict.
+    // Formulas render properly in the fullscreen table viewer.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Text(content, style: style, softWrap: true),
+    );
   }
 }
 
@@ -394,94 +390,6 @@ String _cellToLatex(String cell) {
     return r'\text{' '$t' '}';
   }
   return parts.join(r'\,');
-}
-
-/// Two-pass formula cell: extracts LaTeX, renders table text first,
-/// then overlays rendered LaTeX on top using Stack.
-class _FormulaCell extends StatelessWidget {
-  final String content;
-  final TextStyle style;
-
-  const _FormulaCell({required this.content, required this.style});
-
-  @override
-  Widget build(BuildContext context) {
-    // Pass 1: Extract formulas, replace with placeholder text
-    final formulas = <String>[];
-    final re = RegExp(r'\$(.+?)\$');
-    final plainText = content.replaceAllMapped(re, (m) {
-      final idx = formulas.length;
-      formulas.add(m.group(1)!);
-      return '⟨$idx⟩';
-    });
-
-    // Pass 2: Render the plain text version (works with IntrinsicColumnWidth)
-    // Then overlay Math.tex widgets for each formula
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // First, measure the plain text to get positions
-          final textPainter = TextPainter(
-            text: TextSpan(text: plainText, style: style),
-            maxLines: null,
-            textDirection: TextDirection.ltr,
-          )..layout(maxWidth: constraints.maxWidth);
-
-          // Find positions of each placeholder ⟨0⟩, ⟨1⟩, etc.
-          final positions = <int, TextPosition>{};
-          for (int i = 0; i < formulas.length; i++) {
-            final placeholder = '⟨$i⟩';
-            final idx = plainText.indexOf(placeholder);
-            if (idx >= 0) {
-              positions[i] = TextPosition(offset: idx);
-            }
-          }
-
-          // Build RichText with WidgetSpan for each formula
-          final spans = <InlineSpan>[];
-          int lastEnd = 0;
-          for (int i = 0; i < formulas.length; i++) {
-            final pos = positions[i];
-            if (pos == null) continue;
-            final start = pos.offset;
-            final end = start + '⟨$i⟩'.length;
-            // Add text before formula
-            if (start > lastEnd) {
-              spans.add(TextSpan(
-                text: plainText.substring(lastEnd, start),
-                style: style,
-              ));
-            }
-            // Add formula as Math.tex widget
-            final rawLatex = _cellToLatex('\$${formulas[i]}\$');
-            final latex = _preprocessLatex(rawLatex);
-            spans.add(WidgetSpan(
-              alignment: PlaceholderAlignment.middle,
-              child: Math.tex(
-                latex,
-                mathStyle: MathStyle.text,
-                textStyle: style,
-              ),
-            ));
-            lastEnd = end;
-          }
-          // Add remaining text
-          if (lastEnd < plainText.length) {
-            spans.add(TextSpan(
-              text: plainText.substring(lastEnd),
-              style: style,
-            ));
-          }
-
-          return RichText(
-            text: TextSpan(children: spans),
-            textWidthBasis: TextWidthBasis.longestLine,
-          );
-        },
-      ),
-    );
-  }
 }
 
 List<String> _splitRow(String line) {

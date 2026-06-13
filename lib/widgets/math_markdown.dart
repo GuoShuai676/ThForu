@@ -376,14 +376,10 @@ class _MathCell extends StatelessWidget {
       try {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Math.tex(
-              latex,
-              mathStyle: MathStyle.text,
-              textStyle: style,
-            ),
+          child: Math.tex(
+            latex,
+            mathStyle: MathStyle.text,
+            textStyle: style,
           ),
         );
       } catch (_) {

@@ -857,25 +857,28 @@ class _InlineRichSegment extends StatelessWidget {
             ],
           ),
           body: InteractiveViewer(
-            maxScale: 5.0,
-            minScale: 0.5,
+            maxScale: 10.0,
+            minScale: 0.1,
             child: Center(
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border(
-                    left: BorderSide(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                      width: 3,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                        width: 3,
+                      ),
                     ),
                   ),
-                ),
-                child: MathMarkdown(
-                  data: content,
-                  selectable: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: baseStyle.copyWith(fontSize: 16),
+                  child: MathMarkdown(
+                    data: content,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet(
+                      p: baseStyle.copyWith(fontSize: 16),
+                    ),
                   ),
                 ),
               ),
@@ -1389,19 +1392,22 @@ class _CodeViewerPage extends StatelessWidget {
         ],
       ),
       body: InteractiveViewer(
-        maxScale: 5.0,
-        minScale: 0.5,
+        maxScale: 10.0,
+        minScale: 0.1,
         child: Center(
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: SelectableText(
-              code,
-              style: codeStyle.copyWith(fontSize: 14),
+          child: FittedBox(
+            fit: BoxFit.contain,
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: SelectableText(
+                code,
+                style: codeStyle.copyWith(fontSize: 14),
+              ),
             ),
           ),
         ),

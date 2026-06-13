@@ -213,11 +213,30 @@ class _TableBlock extends StatelessWidget {
       return row;
     }).toList();
 
+    // Pre-calculate column widths based on max content length per column.
+    // This avoids IntrinsicColumnWidth which conflicts with Math.tex's LayoutBuilder.
+    final colWidths = <int, double>{};
+    final allRows = [headers, ...normBodyRows];
+    for (int c = 0; c < colCount; c++) {
+      double maxLen = 0;
+      for (final row in allRows) {
+        if (c < row.length) {
+          maxLen = maxLen > row[c].length ? maxLen : row[c].length.toDouble();
+        }
+      }
+      colWidths[c] = maxLen;
+    }
+    final totalLen = colWidths.values.fold(0.0, (a, b) => a + b);
+
     final headerBg = theme.colorScheme.primaryContainer.withValues(alpha: 0.18);
 
     return Table(
-      defaultColumnWidth: const IntrinsicColumnWidth(),
+      defaultColumnWidth: FlexColumnWidth(1.0),
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      columnWidths: {
+        for (int c = 0; c < colCount; c++)
+          c: FlexColumnWidth(colWidths[c]! / (totalLen > 0 ? totalLen : 1)),
+      },
       border: TableBorder(
         horizontalInside: BorderSide(
           color: theme.dividerColor.withValues(alpha: 0.3),
@@ -344,18 +363,55 @@ class _MathCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = baseStyle.copyWith(
-      fontSize: (baseStyle.fontSize ?? 14) * 0.93,
-      fontWeight: bold ? FontWeight.w600 : null,
-    );
+    return Consumer(builder: (context, ref, _) {
+      final formulaMode = ref.watch(formulaDisplayProvider);
 
-    // All table cells use Text (no LayoutBuilder, no Math.tex)
-    // This avoids the IntrinsicColumnWidth conflict.
-    // Formulas render properly in the fullscreen table viewer.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      child: Text(content, style: style, softWrap: true),
-    );
+      final style = baseStyle.copyWith(
+        fontSize: (baseStyle.fontSize ?? 14) * 0.93,
+        fontWeight: bold ? FontWeight.w600 : null,
+      );
+
+      // Off mode → plain text only
+      if (formulaMode == FormulaDisplayMode.off) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Text(content, style: style, softWrap: true),
+        );
+      }
+
+      // Plain text cells (no formulas) → render as Text directly.
+      if (!content.contains(r'$')) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Text(content, style: style, softWrap: true),
+        );
+      }
+
+      final rawLatex = _cellToLatex(content);
+      if (rawLatex.isEmpty) return const SizedBox(width: 40);
+
+      final latex = _preprocessLatex(rawLatex);
+
+      try {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Math.tex(
+              latex,
+              mathStyle: MathStyle.text,
+              textStyle: style,
+            ),
+          ),
+        );
+      } catch (_) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Text(content, style: style, softWrap: true),
+        );
+      }
+    });
   }
 }
 

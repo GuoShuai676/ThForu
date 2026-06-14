@@ -83,9 +83,11 @@ class AIApp extends ConsumerWidget {
               builder: (_) => const MainScreen(),
             );
           case '/chat':
-            final convId = settings.arguments as String;
+            final args = settings.arguments;
+            final convId = args is Map ? args['conversationId'] as String : args as String;
+            final msgId = args is Map ? args['messageId'] as String? : null;
             return MaterialPageRoute(
-              builder: (_) => ChatScreen(conversationId: convId),
+              builder: (_) => ChatScreen(conversationId: convId, scrollToMessageId: msgId),
             );
           case '/settings':
             return MaterialPageRoute(

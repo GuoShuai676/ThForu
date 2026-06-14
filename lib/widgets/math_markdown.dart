@@ -631,6 +631,38 @@ String _preprocessLatex(String latex) {
   s = s.replaceAll(RegExp(r'\\textsf\b'), r'\mathsf');
   s = s.replaceAll(RegExp(r'\\texttt\b'), r'\mathtt');
 
+  // --- 4b. Fix concatenated commands: \cdotp → \cdot p, \sinx → \sin x, etc.
+  // First fix specific wrong commands, then general concatenation.
+  s = s.replaceAll('\\cdotp', r'\cdot p');
+  // Known command names that might get concatenated with following text.
+  final knownCmds = [
+    'cdotp', 'cdot', 'times', 'div', 'pm', 'mp',
+    'sin', 'cos', 'tan', 'cot', 'sec', 'csc',
+    'log', 'ln', 'exp', 'lim', 'max', 'min',
+    'inf', 'sup', 'det', 'dim', 'arg', 'hom',
+    'gcd', 'lcm', 'deg', 'mod', 'bmod',
+    'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta',
+    'eta', 'theta', 'iota', 'kappa', 'lambda', 'mu',
+    'nu', 'xi', 'pi', 'rho', 'sigma', 'tau',
+    'upsilon', 'phi', 'chi', 'psi', 'omega',
+    'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi',
+    'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega',
+    'partial', 'nabla', 'infty', 'emptyset', 'forall', 'exists',
+    'leq', 'geq', 'neq', 'approx', 'equiv', 'sim',
+    'subset', 'supset', 'in', 'notin', 'cap', 'cup',
+    'int', 'sum', 'prod', 'coprod', 'oint',
+    'leftarrow', 'rightarrow', 'leftrightarrow', 'Leftarrow', 'Rightarrow',
+    'uparrow', 'downarrow', 'Uparrow', 'Downarrow',
+    'Rightarrow', 'Leftarrow', 'Leftrightarrow',
+  ];
+  for (final cmd in knownCmds) {
+    // Match \cmd followed by a letter (not space, {, or end)
+    s = s.replaceAllMapped(
+      RegExp(r'\\' + cmd + r'(?=[a-zA-Z])'),
+      (m) => '\\$cmd ',
+    );
+  }
+
   // --- 5. Strip redundant style commands (context already dictates) ---
   s = s.replaceAll(RegExp(r'\\displaystyle\b'), '');
   s = s.replaceAll(RegExp(r'\\textstyle\b'), '');

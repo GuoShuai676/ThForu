@@ -37,17 +37,18 @@ class ImageService {
       final cropped = await ImageCropper().cropImage(
         sourcePath: sourcePath,
         uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: '框选区域',
-            toolbarColor: Color(0xFF5A328C),
-            toolbarWidgetColor: Color(0xFFFFFFFF),
-            initAspectRatio: CropAspectRatioPreset.original,
-            lockAspectRatio: false,
-            cropStyle: CropStyle.rectangle,
-            activeControlsWidgetColor: Color(0xFF5A328C),
-            cropFrameStrokeWidth: 2,
-            cropGridStrokeWidth: 1,
-          ),
+        AndroidUiSettings(
+          toolbarTitle: '裁剪图片',
+          toolbarColor: Color(0xFF5A328C),
+          toolbarWidgetColor: Color(0xFFFFFFFF),
+          statusBarColor: Colors.transparent,
+          initAspectRatio: CropAspectRatioPreset.original,
+          lockAspectRatio: false,
+          cropStyle: CropStyle.rectangle,
+          activeControlsWidgetColor: Color(0xFF5A328C),
+          cropFrameStrokeWidth: 2,
+          cropGridStrokeWidth: 1,
+        ),
           IOSUiSettings(
             title: '框选区域',
             aspectRatioLockEnabled: false,

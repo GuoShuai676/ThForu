@@ -2,13 +2,13 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:saver_gallery/saver_gallery.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-/// Renders SVG as a bitmap thumbnail in the chat bubble.
-/// Tap to open fullscreen with pinch-to-zoom.
+/// SVG viewer widget with thumbnail, fullscreen view, and download.
 class SvgBlock extends StatefulWidget {
   final String svgString;
   const SvgBlock({super.key, required this.svgString});
@@ -77,26 +77,31 @@ class _SvgBlockState extends State<SvgBlock> {
 
   Future<void> _downloadSvg() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final bytes = Uint8List.fromList(widget.svgString.codeUnits);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final file = File(p.join(dir.path, 'svg_$timestamp.svg'));
-      await file.writeAsString(widget.svgString);
 
-      final bytes = await file.readAsBytes();
-      final result = await SaverGallery.saveImage(
-        bytes,
-        quality: 100,
-        fileName: 'svg_$timestamp.svg',
-        skipIfExists: false,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.isSuccess ? '已保存到相册' : '保存失败'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+      if (Platform.isAndroid) {
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File(p.join(dir.path, 'svg_$timestamp.svg'));
+        await file.writeAsString(widget.svgString);
+        // Use MediaStore to save to gallery
+        final result = await MethodChannel('com.example.ai_chat/media')
+            .invokeMethod('saveToGallery', {
+          'path': file.path,
+          'name': 'svg_$timestamp.svg',
+          'mimeType': 'image/svg+xml',
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result == true ? '已保存到相册' : '保存失败')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('仅支持 Android 保存到相册')),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -134,28 +139,6 @@ class _SvgBlockState extends State<SvgBlock> {
                       color: _failed ? theme.colorScheme.error : theme.colorScheme.primary)),
               if (_image != null) ...[
                 const Spacer(),
-                GestureDetector(
-                  onTap: _downloadSvg,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.download, size: 14,
-                            color: theme.colorScheme.primary),
-                        const SizedBox(width: 4),
-                        Text('下载', style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                        )),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
                 GestureDetector(
                   onTap: _openFullscreen,
                   child: Container(
@@ -300,7 +283,7 @@ class _SvgViewerState extends State<_SvgViewer> {
       ),
       body: _image != null
           ? InteractiveViewer(
-              maxScale: 20.0,
+              maxScale: 10.0,
               minScale: 0.1,
               child: Center(
                 child: FittedBox(

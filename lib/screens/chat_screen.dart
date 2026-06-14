@@ -14,8 +14,9 @@ import '../widgets/expert_progress_widget.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String conversationId;
+  final String? scrollToMessageId;
 
-  const ChatScreen({super.key, required this.conversationId});
+  const ChatScreen({super.key, required this.conversationId, this.scrollToMessageId});
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -33,6 +34,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _searchCtrl.addListener(_onSearchChanged);
+    // If we need to scroll to a specific message, do it after the first frame
+    if (widget.scrollToMessageId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToMessage(widget.scrollToMessageId!);
+      });
+    }
   }
 
   @override

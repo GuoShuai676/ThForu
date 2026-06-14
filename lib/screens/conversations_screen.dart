@@ -15,8 +15,8 @@ class ConversationsScreen extends ConsumerStatefulWidget {
 class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
   final _searchCtrl = TextEditingController();
   String _query = '';
-  Set<String> _contentMatchIds = {};
   bool _isSearching = false;
+  List<Map<String, dynamic>> _searchResults = [];
 
   @override
   void initState() {
@@ -32,27 +32,49 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
 
   void _onSearchChanged() {
     final q = _searchCtrl.text.trim().toLowerCase();
-    if (q == _query) return;
+    if (q.isEmpty) {
+      setState(() {
+        _query = '';
+        _searchResults = [];
+      });
+      return;
+    }
     setState(() {
       _query = q;
-      if (q.isEmpty) {
-        _contentMatchIds = {};
-        _isSearching = false;
-      } else {
-        _isSearching = true;
-      }
+      _isSearching = true;
     });
-    if (q.isNotEmpty) {
-      _searchContent(q);
-    }
+    _searchMessages(q);
   }
 
-  Future<void> _searchContent(String q) async {
+  Future<void> _searchMessages(String q) async {
     final dao = ref.read(messageDaoProvider);
-    final ids = await dao.searchConversationIds(q);
+    final conversations = ref.read(conversationListProvider);
+    final results = <Map<String, dynamic>>[];
+
+    for (final conv in conversations) {
+      try {
+        final messages = await dao.getByConversation(conv.id);
+        for (final msg in messages) {
+          if (msg.content.toLowerCase().contains(q)) {
+            results.add({
+              'conversationId': conv.id,
+              'conversationTitle': conv.title,
+              'messageId': msg.id,
+              'content': msg.content,
+              'role': msg.role,
+              'createdAt': msg.createdAt,
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    results.sort((a, b) =>
+        (b['createdAt'] as DateTime).compareTo(a['createdAt'] as DateTime));
+
     if (mounted && _query == q) {
       setState(() {
-        _contentMatchIds = ids;
+        _searchResults = results;
         _isSearching = false;
       });
     }
@@ -69,13 +91,6 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
         return b.updatedAt.compareTo(a.updatedAt);
       });
-
-    final filtered = _query.isEmpty
-        ? sorted
-        : sorted.where((c) {
-            if (c.title.toLowerCase().contains(_query)) return true;
-            return _contentMatchIds.contains(c.id);
-          }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -94,7 +109,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: '搜索会话（标题或内容）...',
+                hintText: '搜索消息内容...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _query.isNotEmpty
                     ? Row(
@@ -123,81 +138,175 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
               ),
             ),
           ),
-          if (filtered.isEmpty && _query.isNotEmpty)
+          if (_query.isNotEmpty)
             Expanded(
-              child: Center(
-                child: Text('没有找到匹配的会话',
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: theme.colorScheme.outline)),
-              ),
-            )
-          else if (conversations.isEmpty)
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.chat_bubble_outline,
-                        size: 64, color: theme.colorScheme.outline),
-                    const SizedBox(height: 16),
-                    Text('还没有会话',
-                        style: theme.textTheme.bodyLarge
-                            ?.copyWith(color: theme.colorScheme.outline)),
-                    const SizedBox(height: 8),
-                    Text('点击右下角按钮开始聊天',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.outline)),
-                  ],
-                ),
-              ),
+              child: _isSearching
+                  ? const Center(child: CircularProgressIndicator())
+                  : _searchResults.isEmpty
+                      ? Center(
+                          child: Text('没有找到匹配的消息',
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(color: theme.colorScheme.outline)),
+                        )
+                      : ListView.builder(
+                          itemCount: _searchResults.length,
+                          itemBuilder: (context, index) {
+                            final r = _searchResults[index];
+                            final content = r['content'] as String;
+                            final convTitle = r['conversationTitle'] as String;
+                            final role = r['role'] as String;
+                            final convId = r['conversationId'] as String;
+
+                            // Build snippet around match
+                            final lowerContent = content.toLowerCase();
+                            final matchPos = lowerContent.indexOf(_query);
+                            String snippet;
+                            if (matchPos >= 0) {
+                              final start = (matchPos - 30).clamp(0, content.length);
+                              final end = (matchPos + _query.length + 60)
+                                  .clamp(0, content.length);
+                              snippet = (start > 0 ? '…' : '') +
+                                  content.substring(start, end).replaceAll('\n', ' ') +
+                                  (end < content.length ? '…' : '');
+                            } else {
+                              snippet = content.replaceAll('\n', ' ').substring(
+                                  0, 100.clamp(0, content.length));
+                              if (content.length > 100) snippet += '…';
+                            }
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              final convId = r['conversationId'] as String;
+                              final msgId = r['messageId'] as String;
+                              Navigator.pushNamed(context, '/chat',
+                                  arguments: {'conversationId': convId, 'messageId': msgId});
+                            },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: role == 'user'
+                                            ? theme.colorScheme.primaryContainer
+                                            : theme.colorScheme.tertiaryContainer,
+                                        child: Icon(
+                                          role == 'user' ? Icons.person : Icons.smart_toy,
+                                          size: 16,
+                                          color: role == 'user'
+                                              ? theme.colorScheme.primary
+                                              : theme.colorScheme.tertiary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  convTitle,
+                                                  style: theme.textTheme.labelSmall?.copyWith(
+                                                    color: theme.colorScheme.outline,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  role == 'user' ? '你' : 'AI',
+                                                  style: theme.textTheme.labelSmall?.copyWith(
+                                                    color: theme.colorScheme.outline,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              snippet,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodySmall,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
             )
           else
             Expanded(
-              child: ListView.builder(
-                itemCount: filtered.length,
-                itemBuilder: (context, index) {
-                  final conv = filtered[index];
-                  final provider = providers.cast<dynamic>().firstWhere(
-                        (p) => p.id == conv.providerConfigId,
-                        orElse: () => null,
-                      );
-                  // Resolve expert panel name
-                  String? expertPanelName;
-                  if (conv.expertPanelId != null) {
-                    final panels = ref.watch(expertPanelListProvider);
-                    try {
-                      expertPanelName = panels
-                          .firstWhere((p) => p.id == conv.expertPanelId)
-                          .name;
-                    } catch (_) {}
-                  }
-                  return ConversationTile(
-                    conversation: conv,
-                    providerName: provider?.name,
-                    isExpertMode: conv.expertPanelId != null,
-                    expertPanelName: expertPanelName,
-                    onTap: () {
-                      Navigator.pushNamed(context, '/chat',
-                          arguments: conv.id);
-                    },
-                    onDelete: () {
-                      ref
-                          .read(conversationListProvider.notifier)
-                          .remove(conv.id);
-                    },
-                    onRename: (newTitle) {
-                      ref
-                          .read(conversationListProvider.notifier)
-                          .updateTitle(conv.id, newTitle);
-                    },
-                    onTogglePin: () {
-                      ref
-                          .read(conversationListProvider.notifier)
-                          .togglePin(conv.id);
-                    },
-                  );
-                },
-              ),
+              child: sorted.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.chat_bubble_outline,
+                              size: 64, color: theme.colorScheme.outline),
+                          const SizedBox(height: 16),
+                          Text('还没有会话',
+                              style: theme.textTheme.bodyLarge
+                                  ?.copyWith(color: theme.colorScheme.outline)),
+                          const SizedBox(height: 8),
+                          Text('点击右下角按钮开始聊天',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: theme.colorScheme.outline)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: sorted.length,
+                      itemBuilder: (context, index) {
+                        final conv = sorted[index];
+                        final provider = providers.cast<dynamic>().firstWhere(
+                              (p) => p.id == conv.providerConfigId,
+                              orElse: () => null,
+                            );
+                        String? expertPanelName;
+                        if (conv.expertPanelId != null) {
+                          final panels = ref.watch(expertPanelListProvider);
+                          try {
+                            expertPanelName = panels
+                                .firstWhere((p) => p.id == conv.expertPanelId)
+                                .name;
+                          } catch (_) {}
+                        }
+                        return ConversationTile(
+                          conversation: conv,
+                          providerName: provider?.name,
+                          isExpertMode: conv.expertPanelId != null,
+                          expertPanelName: expertPanelName,
+                          onTap: () {
+                            Navigator.pushNamed(context, '/chat',
+                                arguments: conv.id);
+                          },
+                          onDelete: () {
+                            ref
+                                .read(conversationListProvider.notifier)
+                                .remove(conv.id);
+                          },
+                          onRename: (newTitle) {
+                            ref
+                                .read(conversationListProvider.notifier)
+                                .updateTitle(conv.id, newTitle);
+                          },
+                          onTogglePin: () {
+                            ref
+                                .read(conversationListProvider.notifier)
+                                .togglePin(conv.id);
+                          },
+                        );
+                      },
+                    ),
             ),
         ],
       ),
@@ -234,7 +343,6 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
       return;
     }
 
-    // Ask user to choose mode: normal or expert
     final mode = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -262,7 +370,6 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
 
     if (mode == null || !mounted) return;
 
-    // Normal mode: optionally pick a persona first
     String? personaId;
     if (mode == 'normal') {
       final personas = ref.read(personaListProvider);
@@ -334,7 +441,6 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         }
       }
     } else {
-      // Expert mode
       final panels = ref.read(expertPanelListProvider);
       if (panels.isEmpty) {
         if (mounted) {

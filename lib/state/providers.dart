@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../db/conversation_dao.dart';
 import '../db/message_dao.dart';
@@ -14,6 +15,8 @@ import 'chat_state.dart';
 import 'theme_notifier.dart';
 import 'formula_display_notifier.dart';
 import 'persona_list_notifier.dart';
+
+final routeObserver = RouteObserver<ModalRoute>();
 
 final conversationDaoProvider = Provider<ConversationDao>((ref) {
   return ConversationDao();

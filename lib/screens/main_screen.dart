@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'conversations_screen.dart';
-import 'favorites_screen.dart';
+import 'github_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -14,7 +14,7 @@ class _MainScreenState extends State<MainScreen> {
 
   final _screens = const [
     ConversationsScreen(),
-    FavoritesScreen(),
+    GitHubScreen(),
   ];
 
   @override
@@ -34,9 +34,9 @@ class _MainScreenState extends State<MainScreen> {
             label: '聊天',
           ),
           NavigationDestination(
-            icon: Icon(Icons.star_outline),
-            selectedIcon: Icon(Icons.star),
-            label: '收藏',
+            icon: Icon(Icons.code),
+            selectedIcon: Icon(Icons.code),
+            label: 'GitHub',
           ),
         ],
       ),

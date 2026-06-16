@@ -9,12 +9,32 @@ class FavoritesScreen extends ConsumerStatefulWidget {
   ConsumerState<FavoritesScreen> createState() => _FavoritesScreenState();
 }
 
-class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
+class _FavoritesScreenState extends ConsumerState<FavoritesScreen> with RouteAware {
   List<Map<String, dynamic>>? _favorites;
 
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
     _load();
   }
 

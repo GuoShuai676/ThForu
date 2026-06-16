@@ -291,6 +291,7 @@ class _TableBlock extends StatelessWidget {
   }
 
   void _showTableFullscreen(BuildContext context, ThemeData theme, TextStyle baseStyle) {
+    FocusScope.of(context).unfocus();
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -301,7 +302,10 @@ class _TableBlock extends StatelessWidget {
             actions: [
               IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  FocusScope.of(context).unfocus();
+                  Navigator.pop(context);
+                },
               ),
             ],
           ),
@@ -352,19 +356,19 @@ class _MathCell extends StatelessWidget {
         fontWeight: bold ? FontWeight.w600 : null,
       );
 
-      // Off mode → plain text only
+      // Off mode → plain text only (but parse bold)
       if (formulaMode == FormulaDisplayMode.off) {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Text(content, style: style, softWrap: true),
+          child: _parseCellMarkdown(content, style),
         );
       }
 
-      // Plain text cells (no formulas) → render as Text directly.
+      // Plain text cells (no formulas) → render with bold parsing.
       if (!content.contains(r'$') && !content.contains(r'\(')) {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Text(content, style: style, softWrap: true),
+          child: _parseCellMarkdown(content, style),
         );
       }
 
@@ -389,11 +393,35 @@ class _MathCell extends StatelessWidget {
       } catch (_) {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Text(content, style: style, softWrap: true),
+          child: _parseCellMarkdown(content, style),
         );
       }
     });
   }
+}
+
+/// Parse **bold** markdown in cell text, returning a RichText widget.
+Widget _parseCellMarkdown(String text, TextStyle style) {
+  final spans = <TextSpan>[];
+  final re = RegExp(r'\*\*(.+?)\*\*');
+  int pos = 0;
+  for (final m in re.allMatches(text)) {
+    if (m.start > pos) {
+      spans.add(TextSpan(text: text.substring(pos, m.start), style: style));
+    }
+    spans.add(TextSpan(text: m.group(1), style: style.copyWith(fontWeight: FontWeight.bold)));
+    pos = m.end;
+  }
+  if (pos < text.length) {
+    spans.add(TextSpan(text: text.substring(pos), style: style));
+  }
+  if (spans.isEmpty) {
+    spans.add(TextSpan(text: text, style: style));
+  }
+  return RichText(
+    text: TextSpan(children: spans),
+    softWrap: true,
+  );
 }
 
 /// Convert cell content to a LaTeX inline-math expression.
@@ -877,6 +905,7 @@ class _InlineRichSegment extends StatelessWidget {
 
   /// Open blockquote content in fullscreen viewer
   void _openBlockquoteFullscreen(BuildContext context, String content, TextStyle baseStyle) {
+    FocusScope.of(context).unfocus();
     final theme = Theme.of(context);
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -888,7 +917,10 @@ class _InlineRichSegment extends StatelessWidget {
             actions: [
               IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  FocusScope.of(context).unfocus();
+                  Navigator.pop(context);
+                },
               ),
             ],
           ),
@@ -1387,6 +1419,7 @@ class _CodeBlockWidget extends StatelessWidget {
   }
 
   void _openFullscreen(BuildContext context, TextStyle codeStyle) {
+    FocusScope.of(context).unfocus();
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -1421,10 +1454,13 @@ class _CodeViewerPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(language.isNotEmpty ? language : '代码'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () {
+                  FocusScope.of(context).unfocus();
+                  Navigator.pop(context);
+                },
+              ),
         ],
       ),
       body: InteractiveViewer(

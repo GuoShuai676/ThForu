@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'state/providers.dart';
 import 'screens/main_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/favorites_screen.dart';
 import 'state/providers.dart';
 
 class AIApp extends ConsumerWidget {
@@ -15,6 +17,7 @@ class AIApp extends ConsumerWidget {
     return MaterialApp(
       title: 'ThForu',
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [routeObserver],
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: _seedColor,
@@ -92,6 +95,10 @@ class AIApp extends ConsumerWidget {
           case '/settings':
             return MaterialPageRoute(
               builder: (_) => const SettingsScreen(),
+            );
+          case '/favorites':
+            return MaterialPageRoute(
+              builder: (_) => const FavoritesScreen(),
             );
           default:
             return MaterialPageRoute(

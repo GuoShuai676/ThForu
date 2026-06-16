@@ -11,12 +11,15 @@ class ChatInputBar extends ConsumerStatefulWidget {
     List<String>? imagePaths,
     String? filePath,
     String? fileName,
+    bool? deepSearch,
   }) onSend;
   final VoidCallback? onMessageSent;
   final bool supportsVision;
   final bool supportsFile;
   final String? hintText;
   final String? prefillText;
+  final String? followUpContent;
+  final VoidCallback? onCancelFollowUp;
 
   const ChatInputBar({
     super.key,
@@ -26,6 +29,8 @@ class ChatInputBar extends ConsumerStatefulWidget {
     this.supportsFile = false,
     this.hintText,
     this.prefillText,
+    this.followUpContent,
+    this.onCancelFollowUp,
   });
 
   @override
@@ -40,6 +45,7 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar> {
   String? _selectedFileName;
   bool _isRecording = false;
   bool _isTranscribing = false;
+  bool _deepSearch = false;
 
   @override
   void didUpdateWidget(covariant ChatInputBar oldWidget) {
@@ -68,6 +74,7 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar> {
           _selectedImages.isNotEmpty ? List.from(_selectedImages) : null,
       filePath: _selectedFilePath,
       fileName: _selectedFileName,
+      deepSearch: _deepSearch,
     );
 
     _textController.clear();
@@ -203,6 +210,42 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar> {
       child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Follow-up context bar (WeChat style)
+            if (widget.followUpContent != null && widget.followUpContent!.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.reply, size: 16, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.followUpContent!.length > 30
+                            ? '${widget.followUpContent!.substring(0, 30)}...'
+                            : widget.followUpContent!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: widget.onCancelFollowUp,
+                      child: Icon(Icons.close, size: 18, color: theme.colorScheme.outline),
+                    ),
+                  ],
+                ),
+              ),
             if (_selectedImages.isNotEmpty)
               GestureDetector(
                 onTap: _showImagePreview,
@@ -252,6 +295,28 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar> {
                 ],
               ),
             ),
+          // Deep search toggle
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            child: Row(
+              children: [
+                Icon(Icons.explore, size: 16, color: _deepSearch ? theme.colorScheme.primary : theme.colorScheme.outline),
+                const SizedBox(width: 6),
+                Text('深度搜索', style: theme.textTheme.labelSmall?.copyWith(
+                  color: _deepSearch ? theme.colorScheme.primary : theme.colorScheme.outline,
+                )),
+                const Spacer(),
+                Transform.scale(
+                  scale: 0.75,
+                  child: Switch(
+                    value: _deepSearch,
+                    onChanged: (v) => setState(() => _deepSearch = v),
+                    activeColor: theme.colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [

@@ -9,6 +9,7 @@ import '../db/message_dao.dart';
 import '../db/conversation_dao.dart';
 import '../services/ai_service.dart';
 import '../services/expert_mode_service.dart';
+import '../services/deep_search_service.dart';
 import 'chat_state.dart';
 
 class ChatNotifier extends StateNotifier<ChatState> {
@@ -55,6 +56,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     List<String>? imagePaths,
     String? filePath,
     String? fileName,
+    String? replyToId,
+    String? replyPreview,
   }) async {
     if (text.trim().isEmpty && (imagePaths == null || imagePaths.isEmpty) && filePath == null) {
       return;
@@ -96,6 +99,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       imagePaths: imagePaths?.isNotEmpty == true ? imagePaths : null,
       filePath: filePath,
       fileName: fileName,
+      metadata: replyToId != null ? {
+        'replyToId': replyToId,
+        'replyPreview': replyPreview,
+      } : null,
     );
     await _messageDao.insert(userMsg);
 
@@ -139,11 +146,19 @@ class ChatNotifier extends StateNotifier<ChatState> {
         }
       }
     } catch (_) {}
+    if (replyToId != null && replyPreview != null && replyPreview!.isNotEmpty) {
+      history.insert(0, Message(
+        conversationId: conversationId,
+        role: 'system',
+        content: '用户正在追问以下内容：「$replyPreview」。请结合上下文回答。',
+      ));
+    }
 
     final aiService = AiService(providerConfig);
 
     try {
       String fullContent = '';
+      DateTime lastDbWrite = DateTime.now();
       await for (final chunk in aiService.streamChat(
         history: history,
         newUserMessage: text,
@@ -162,11 +177,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
           if (c < 0xD800 || c > 0xDFFF) clean.writeCharCode(c);
         }
         fullContent += clean.toString();
-        await _messageDao.updateContent(assistantMsg.id, fullContent);
 
-        // Throttle UI updates to ~300 ms for smoother streaming
+        // DB write: max every 2 seconds (not every chunk)
         final now = DateTime.now();
-        if (now.difference(_lastUiUpdate).inMilliseconds > 300) {
+        if (now.difference(lastDbWrite).inMilliseconds > 2000) {
+          lastDbWrite = now;
+          await _messageDao.updateContent(assistantMsg.id, fullContent);
+        }
+
+        // UI update: max every 200ms for smooth streaming
+        if (now.difference(_lastUiUpdate).inMilliseconds > 200) {
           _lastUiUpdate = now;
           try {
             final updated = state.messages.map((m) {
@@ -222,6 +242,108 @@ class ChatNotifier extends StateNotifier<ChatState> {
         await _conversationDao.update(conv);
       }
     } catch (_) {}
+
+    WakelockPlus.disable();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Deep search mode
+  // ---------------------------------------------------------------------------
+
+  Future<void> sendDeepSearchMessage({
+    required AIProviderConfig providerConfig,
+    required String text,
+  }) async {
+    if (text.trim().isEmpty) return;
+    _activeRunId++;
+    final myRunId = _activeRunId;
+
+    if (state.isStreaming) {
+      final msgs = state.messages.toList();
+      state = ChatState(messages: msgs, isStreaming: false);
+    }
+
+    WakelockPlus.enable();
+
+    try {
+      final conv = await _conversationDao.getById(conversationId);
+      if (conv != null && conv.title == 'New Chat') {
+        final title = '深度搜索: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
+        await _conversationDao.updateTitle(conversationId, title);
+      }
+    } catch (_) {}
+
+    final userMsg = Message(
+      conversationId: conversationId,
+      role: 'user',
+      content: '🔍 $text',
+    );
+    await _messageDao.insert(userMsg);
+
+    final assistantMsg = Message(
+      conversationId: conversationId,
+      role: 'assistant',
+      content: '',
+      metadata: {'type': 'deep_search', 'query': text},
+    );
+    await _messageDao.insert(assistantMsg);
+
+    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+    state = ChatState(messages: [...state.messages, userMsg, assistantMsg], isStreaming: true);
+
+    String fullContent = '';
+    DateTime lastDbWrite = DateTime.now();
+    int phaseIndex = 0;
+    const phases = ['🔍 正在拆解问题...', '🌐 正在搜索...', '📄 正在读取网页...', '🤖 AI 正在分析...'];
+
+    try {
+      await for (final result in DeepSearchService.search(
+        query: text,
+        config: providerConfig,
+        onProgress: (progress) {
+          final phaseIdx = DeepSearchPhase.values.indexOf(progress.phase);
+          if (phaseIdx >= 0 && phaseIdx < phases.length && phaseIdx != phaseIndex) {
+            phaseIndex = phaseIdx;
+          }
+        },
+        isCancelled: () => _activeRunId != myRunId,
+      )) {
+        if (_activeRunId != myRunId) break;
+        fullContent = result.detailedReport;
+        final now = DateTime.now();
+        if (now.difference(lastDbWrite).inMilliseconds > 2000) {
+          lastDbWrite = now;
+          await _messageDao.updateContent(assistantMsg.id, fullContent);
+        }
+        if (now.difference(_lastUiUpdate).inMilliseconds > 200) {
+          _lastUiUpdate = now;
+          try {
+            final updated = state.messages.map((m) {
+              return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
+            }).toList();
+            state = ChatState(messages: updated, isStreaming: true);
+          } catch (_) {}
+        }
+      }
+
+      if (_activeRunId != myRunId) return;
+      await _messageDao.updateContent(assistantMsg.id, fullContent);
+      try {
+        final updated = state.messages.map((m) {
+          return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
+        }).toList();
+        state = ChatState(messages: updated, isStreaming: false);
+      } catch (_) {}
+    } catch (e) {
+      fullContent = '深度搜索失败: $e';
+      await _messageDao.updateContent(assistantMsg.id, fullContent);
+      try {
+        final updated = state.messages.map((m) {
+          return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
+        }).toList();
+        state = ChatState(messages: updated, isStreaming: false);
+      } catch (_) {}
+    }
 
     WakelockPlus.disable();
   }
@@ -426,6 +548,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
     try {
       String fullContent = '';
+      DateTime lastDbWrite = DateTime.now();
       await for (final chunk in gatewayService.streamChat(
         history: gatewayHistory,
         newUserMessage: synthesisPrompt,
@@ -437,10 +560,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
           return;
         }
         fullContent += chunk;
-        await _messageDao.updateContent(gatewayPlaceholder.id, fullContent);
 
+        // DB write: max every 2 seconds
         final now = DateTime.now();
-        if (now.difference(_lastUiUpdate).inMilliseconds > 300) {
+        if (now.difference(lastDbWrite).inMilliseconds > 2000) {
+          lastDbWrite = now;
+          await _messageDao.updateContent(gatewayPlaceholder.id, fullContent);
+        }
+
+        // UI update: max every 200ms
+        if (now.difference(_lastUiUpdate).inMilliseconds > 200) {
           _lastUiUpdate = now;
           try {
             final updated = state.messages.map((m) {

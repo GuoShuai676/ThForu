@@ -10,9 +10,10 @@ class MessageBubble extends StatelessWidget {
   final bool isStreaming;
   final String? highlight;
   final bool isCurrentSearchMatch;
-  final void Function(String content)? onFollowUp;
+  final void Function(String content, String messageId)? onFollowUp;
   final VoidCallback? onDelete;
   final VoidCallback? onToggleFavorite;
+  final void Function(String messageId)? onScrollToMessage;
   final IconData? assistantIcon;
   final Color? assistantColor;
 
@@ -25,6 +26,7 @@ class MessageBubble extends StatelessWidget {
     this.onFollowUp,
     this.onDelete,
     this.onToggleFavorite,
+    this.onScrollToMessage,
     this.assistantIcon,
     this.assistantColor,
   });
@@ -55,7 +57,7 @@ class MessageBubble extends StatelessWidget {
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  onFollowUp?.call(message.content);
+                  onFollowUp?.call(message.content, message.id);
                 },
               ),
               ListTile(
@@ -99,6 +101,8 @@ class MessageBubble extends StatelessWidget {
   }
 
   void _openImageViewer(BuildContext context, String imagePath) {
+    // Close keyboard before opening image viewer
+    FocusScope.of(context).unfocus();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -192,6 +196,41 @@ class MessageBubble extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Reply quote bar
+                    if (message.metadata != null && message.metadata!['replyToId'] != null)
+                      GestureDetector(
+                        onTap: () {
+                          final targetId = message.metadata!['replyToId'] as String;
+                          onScrollToMessage?.call(targetId);
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.reply, size: 14, color: theme.colorScheme.outline),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  (message.metadata!['replyPreview'] as String? ?? '').length > 40
+                                      ? '${(message.metadata!['replyPreview'] as String).substring(0, 40)}...'
+                                      : (message.metadata!['replyPreview'] as String? ?? ''),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.outline,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     if (message.hasImages) ...[
                       Wrap(
                         spacing: 6,

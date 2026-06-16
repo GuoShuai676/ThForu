@@ -51,10 +51,28 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     final conversations = ref.read(conversationListProvider);
     final results = <Map<String, dynamic>>[];
 
+    // Search conversations by title first (fast)
     for (final conv in conversations) {
+      if (conv.title.toLowerCase().contains(q)) {
+        results.add({
+          'conversationId': conv.id,
+          'conversationTitle': conv.title,
+          'messageId': '',
+          'content': conv.title,
+          'role': 'title',
+          'createdAt': conv.updatedAt,
+        });
+      }
+    }
+
+    // Search messages (limit to avoid lag)
+    int count = 0;
+    for (final conv in conversations) {
+      if (count >= 20) break; // Limit total results
       try {
         final messages = await dao.getByConversation(conv.id);
-        for (final msg in messages) {
+        for (final msg in messages.reversed) { // Search from newest
+          if (count >= 20) break;
           if (msg.content.toLowerCase().contains(q)) {
             results.add({
               'conversationId': conv.id,
@@ -64,6 +82,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
               'role': msg.role,
               'createdAt': msg.createdAt,
             });
+            count++;
           }
         }
       } catch (_) {}
@@ -96,6 +115,11 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
       appBar: AppBar(
         title: const Text('ThForu'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.star_outline),
+            tooltip: '收藏',
+            onPressed: () => Navigator.pushNamed(context, '/favorites'),
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.pushNamed(context, '/settings'),

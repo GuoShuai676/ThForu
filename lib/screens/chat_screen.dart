@@ -11,6 +11,7 @@ import '../state/chat_state.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/expert_progress_widget.dart';
+import '../services/deep_search_service.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String conversationId;
@@ -22,28 +23,58 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
   final _scrollController = ScrollController();
   final _searchCtrl = TextEditingController();
   bool _showSearch = false;
   String _searchQuery = '';
   String? _followUpContext;
+  String? _followUpMessageId;
   final _messageKeys = <String, GlobalKey>{};
+  bool _userScrolledUp = false;
 
   @override
   void initState() {
     super.initState();
     _searchCtrl.addListener(_onSearchChanged);
-    // If we need to scroll to a specific message, do it after the first frame
-    if (widget.scrollToMessageId != null) {
+    _scrollController.addListener(_onScroll);
+    if (widget.scrollToMessageId != null && widget.scrollToMessageId!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToMessage(widget.scrollToMessageId!);
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) _scrollToMessage(widget.scrollToMessageId!);
+        });
       });
     }
   }
 
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pixels = _scrollController.position.pixels;
+    if (pixels >= 200 && !_userScrolledUp) {
+      _userScrolledUp = true;
+    } else if (pixels < 200 && _userScrolledUp) {
+      _userScrolledUp = false;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    ref.read(chatProvider(widget.conversationId).notifier).loadMessages();
+  }
+
   @override
   void dispose() {
+    routeObserver.unsubscribe(this);
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -57,6 +88,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _scrollToBottom() {
     if (!_scrollController.hasClients) return;
+    _userScrolledUp = false;
     _scrollController.animateTo(
       0,
       duration: const Duration(milliseconds: 200),
@@ -323,7 +355,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.listen(chatProvider(widget.conversationId), (prev, next) {
       final prevLen = prev?.messages.length ?? 0;
       final nextLen = next.messages.length;
-      if (nextLen > prevLen && _isNearBottom) {
+      if (nextLen > prevLen && !_userScrolledUp && _isNearBottom) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     });
@@ -387,7 +419,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final theme = Theme.of(context);
 
-    if (chatState.isStreaming && _isNearBottom) {
+    if (chatState.isStreaming && !_userScrolledUp && _isNearBottom) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     }
 
@@ -518,11 +550,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Expanded(
                 child: GestureDetector(
                   onTap: () => FocusScope.of(context).unfocus(),
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    reverse: true,
-                    padding: const EdgeInsets.only(top: 8, bottom: 8),
-                    itemCount: chatState.messages.length,
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification is ScrollStartNotification && notification.dragDetails != null && !_isNearBottom) {
+                        setState(() => _userScrolledUp = true);
+                      }
+                      return false;
+                    },
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      reverse: true,
+                      padding: const EdgeInsets.only(top: 8, bottom: 8),
+                      itemCount: chatState.messages.length,
                     itemBuilder: (context, index) {
                       // reverse:true puts index 0 at the bottom, so we feed
                       // messages in reverse so newest (last) maps to index 0.
@@ -550,8 +589,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         assistantColor: persona != null
                             ? Color(persona.avatarColor)
                             : null,
-                        onFollowUp: (content) {
-                          setState(() => _followUpContext = content);
+                        onFollowUp: (content, msgId) {
+                          setState(() {
+                            _followUpContext = content;
+                            _followUpMessageId = msgId;
+                          });
                         },
                         onDelete: () {
                           ref
@@ -565,38 +607,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   .notifier)
                               .toggleFavorite(msg.id);
                         },
+                        onScrollToMessage: (targetId) {
+                          _scrollToMessage(targetId);
+                        },
                       );
                     },
                   ),
+                ),
                 ),
               ),
               if (isExpertMode
                   ? (gatewayConfig != null && expertConfigs.isNotEmpty)
                   : provider != null)
-                ChatInputBar(
+                SafeArea(
+                  top: false,
+                  child: ChatInputBar(
+                  key: const ValueKey('chat_input_bar'),
                   onSend: ({
                     required String text,
                     List<String>? imagePaths,
                     String? filePath,
                     String? fileName,
+                    bool? deepSearch,
                   }) async {
-                    // If user initiated a follow-up, prepend the referenced
-                    // message content so the AI can recall the context.
-                    var finalText = text;
-                    if (_followUpContext != null &&
-                        _followUpContext!.isNotEmpty) {
-                      finalText = '【追问下文】\n>>>\n$_followUpContext\n<<<\n\n$text';
-                    }
+                    final replyTo = _followUpMessageId;
+                    final replyPreview = _followUpContext;
                     final notifier = ref.read(
                         chatProvider(widget.conversationId).notifier);
-                    if (isExpertMode &&
+                    if (deepSearch == true && provider != null) {
+                      await notifier.sendDeepSearchMessage(
+                        providerConfig: provider,
+                        text: text,
+                      );
+                    } else if (isExpertMode &&
                         expertPanel != null &&
                         gatewayConfig != null) {
                       await notifier.sendExpertMessage(
                         panel: expertPanel,
                         expertConfigs: expertConfigs,
                         gatewayConfig: gatewayConfig,
-                        text: finalText,
+                        text: text,
                         imagePaths: imagePaths,
                         filePath: filePath,
                         fileName: fileName,
@@ -604,15 +654,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     } else if (provider != null) {
                       await notifier.sendMessage(
                         providerConfig: provider,
-                        text: finalText,
+                        text: text,
                         imagePaths: imagePaths,
                         filePath: filePath,
                         fileName: fileName,
+                        replyToId: replyTo,
+                        replyPreview: replyPreview,
                       );
                     }
                   },
                   onMessageSent: () {
-                    setState(() => _followUpContext = null);
+                    _userScrolledUp = false;
+                    setState(() {
+                      _followUpContext = null;
+                      _followUpMessageId = null;
+                    });
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       _scrollToBottom();
                     });
@@ -621,6 +677,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   supportsFile: supportsFile,
                   hintText: hintText,
                   prefillText: null,
+                  followUpContent: _followUpContext,
+                  onCancelFollowUp: () {
+                    setState(() {
+                      _followUpContext = null;
+                      _followUpMessageId = null;
+                    });
+                  },
+                ),
                 ),
             ],
           ),
@@ -630,6 +694,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: ColoredBox(
                 color: theme.colorScheme.surface,
                 child: _buildSearchResults(chatState.messages, theme),
+              ),
+            ),
+          // Layer 3: scroll-to-bottom FAB
+          if (_userScrolledUp)
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: FloatingActionButton.small(
+                heroTag: 'scroll_to_bottom',
+                onPressed: _scrollToBottom,
+                child: const Icon(Icons.keyboard_double_arrow_down),
               ),
             ),
         ],

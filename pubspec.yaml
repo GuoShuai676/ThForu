@@ -29,6 +29,10 @@ dependencies:
   file_picker: ^8.0.0
   wakelock_plus: ^1.2.0
   saver_gallery: ^3.0.6
+  share_plus: ^7.2.2
+  url_launcher: ^6.2.5
+  archive: ^3.6.1
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:

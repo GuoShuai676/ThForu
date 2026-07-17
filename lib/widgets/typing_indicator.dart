@@ -7,32 +7,22 @@ class TypingIndicator extends StatefulWidget {
   State<TypingIndicator> createState() => _TypingIndicatorState();
 }
 
-class _TypingIndicatorState extends State<TypingIndicator> with TickerProviderStateMixin {
-  late final List<AnimationController> _controllers;
-  late final List<Animation<double>> _animations;
+class _TypingIndicatorState extends State<TypingIndicator>
+    with TickerProviderStateMixin {
+  late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controllers = List.generate(3, (i) => AnimationController(
+    _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
-    ));
-    _animations = _controllers.map((c) => Tween<double>(begin: 0, end: -8).animate(
-      CurvedAnimation(parent: c, curve: Curves.easeInOut),
-    )).toList();
-    for (int i = 0; i < 3; i++) {
-      Future.delayed(Duration(milliseconds: i * 150), () {
-        if (mounted) _controllers[i].repeat(reverse: true);
-      });
-    }
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
   }
 
   @override
   void dispose() {
-    for (final c in _controllers) {
-      c.dispose();
-    }
+    _controller.dispose();
     super.dispose();
   }
 
@@ -41,22 +31,36 @@ class _TypingIndicatorState extends State<TypingIndicator> with TickerProviderSt
     final color = Theme.of(context).colorScheme.primary;
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (i) => AnimatedBuilder(
-        animation: _animations[i],
-        builder: (context, child) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Transform.translate(
-            offset: Offset(0, _animations[i].value),
-            child: child,
-          ),
-        ),
-        child: Container(
-          width: 6,
-          height: 6,
-          margin: const EdgeInsets.symmetric(horizontal: 1.5),
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-      )),
+      children: List.generate(3, (i) {
+        return ListenableBuilder(
+          listenable: _controller,
+          builder: (context, child) {
+            final phase = (_controller.value * 3.0 - i * 0.8) % 3.0;
+            final t = phase < 0 ? 0.0 : (phase > 1.0 ? (phase < 2.0 ? 1.0 - (phase - 1.0) : 0.0) : phase);
+            final smooth = t * t * (3.0 - 2.0 * t);
+            final y = -7.0 * smooth;
+            final scale = 0.85 + 0.15 * smooth;
+            final alpha = 0.35 + 0.65 * smooth;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: Transform.translate(
+                offset: Offset(0, y),
+                child: Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: alpha),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      }),
     );
   }
 }

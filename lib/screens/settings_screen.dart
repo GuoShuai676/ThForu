@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/expert_panel.dart';
 import '../models/provider_config.dart';
@@ -80,6 +80,33 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         );
                       }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('\u6df1\u8272\u6a21\u5f0f', style: theme.textTheme.bodyMedium),
+                    const SizedBox(height: 12),
+                    SegmentedButton<ThemeMode>(
+                      segments: const [
+                        ButtonSegment(value: ThemeMode.system, label: Text('\u8ddf\u968f\u7cfb\u7edf'), icon: Icon(Icons.settings_brightness)),
+                        ButtonSegment(value: ThemeMode.light, label: Text('\u6d45\u8272'), icon: Icon(Icons.light_mode)),
+                        ButtonSegment(value: ThemeMode.dark, label: Text('\u6df1\u8272'), icon: Icon(Icons.dark_mode)),
+                      ],
+                      selected: {ref.watch(themeProvider).themeMode},
+                      onSelectionChanged: (sel) {
+                        ref.read(themeProvider.notifier).setThemeMode(sel.first);
+                      },
                     ),
                   ],
                 ),

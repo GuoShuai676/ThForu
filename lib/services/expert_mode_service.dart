@@ -1,11 +1,9 @@
-import '../models/provider_config.dart';
+﻿import '../models/provider_config.dart';
 import '../models/message.dart';
 import '../state/chat_state.dart';
 import 'ai_service.dart';
 
 class ExpertModeService {
-  /// Query all experts in parallel. Returns a map of providerId -> response text.
-  /// Failed experts have their error message in the content.
   static Future<Map<String, String>> queryAllExperts({
     required List<AIProviderConfig> expertConfigs,
     required List<Message> history,
@@ -28,7 +26,7 @@ class ExpertModeService {
       );
 
       final service = AiService(config);
-      String fullContent = '';
+      final buf = StringBuffer();
       try {
         await for (final chunk in service.streamChat(
           history: history,
@@ -37,9 +35,9 @@ class ExpertModeService {
           isCancelled: isCancelled,
         )) {
           if (isCancelled()) return;
-          fullContent += chunk;
+          buf.write(chunk);
         }
-        results[config.id] = fullContent;
+        results[config.id] = buf.toString();
         onStatusChanged(
           config.id,
           ExpertStatus(
@@ -73,19 +71,13 @@ class ExpertModeService {
       }
     }).toList();
 
-    // Wrap each expert future with a 120 s timeout so one hanging
-    // connection never blocks the others.
     await Future.wait(futures.map((f) => f.timeout(
       const Duration(seconds: 120),
-      onTimeout: () {
-        // Timeout handled inside the future body; this is a safety net
-        // that ensures Future.wait always completes.
-      },
+      onTimeout: () {},
     )));
     return results;
   }
 
-  /// Build the synthesis prompt for the gateway API.
   static String buildSynthesisPrompt({
     required String userQuestion,
     required Map<String, String> expertResponses,
@@ -107,7 +99,11 @@ class ExpertModeService {
       buffer.writeln('---');
       buffer.writeln();
     }
-    buffer.writeln('请提供你的综合分析：');
+    if (customPrompt != null && customPrompt.isNotEmpty) {
+      buffer.writeln(customPrompt);
+    } else {
+      buffer.writeln('请提供你的综合分析：');
+    }
     return buffer.toString();
   }
 }

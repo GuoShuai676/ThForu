@@ -1,89 +1,81 @@
-import 'storage.dart';
+﻿import 'database_helper.dart';
 import '../models/message.dart';
 
 class MessageDao {
   Future<List<Message>> getByConversation(String conversationId) async {
-    final storage = await Storage.instance;
-    final maps = storage.getMessages(conversationId);
-    maps.sort((a, b) => (a['created_at'] as int).compareTo(b['created_at'] as int));
+    final db = await DatabaseHelper.database;
+    final maps = await db.query(
+      'messages',
+      where: 'conversation_id = ?',
+      whereArgs: [conversationId],
+      orderBy: 'created_at ASC',
+    );
     return maps.map((m) => Message.fromMap(m)).toList();
   }
 
   Future<void> insert(Message msg) async {
-    final storage = await Storage.instance;
-    await storage.insertMessage(msg.toMap());
+    final db = await DatabaseHelper.database;
+    await db.insert('messages', msg.toMap());
   }
 
-  Future<void> updateContent(String id, String content) async {
-    final storage = await Storage.instance;
-    final allConvs = storage.getAllConversations();
-    for (final conv in allConvs) {
-      final msgs = storage.getMessages(conv['id'] as String);
-      final idx = msgs.indexWhere((m) => m['id'] == id);
-      if (idx >= 0) {
-        msgs[idx]['content'] = content;
-        await storage.saveMessages(conv['id'] as String, msgs);
-        return;
-      }
-    }
+  Future<void> updateContent(String conversationId, String id, String content) async {
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'messages',
+      {'content': content},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<void> deleteByConversation(String conversationId) async {
-    final storage = await Storage.instance;
-    await storage.deleteMessages(conversationId);
+    final db = await DatabaseHelper.database;
+    await db.delete('messages', where: 'conversation_id = ?', whereArgs: [conversationId]);
   }
 
   Future<void> deleteById(String conversationId, String messageId) async {
-    final storage = await Storage.instance;
-    final msgs = storage.getMessages(conversationId);
-    msgs.removeWhere((m) => m['id'] == messageId);
-    await storage.saveMessages(conversationId, msgs);
+    final db = await DatabaseHelper.database;
+    await db.delete('messages', where: 'id = ?', whereArgs: [messageId]);
   }
 
   Future<void> toggleFavorite(String conversationId, String messageId) async {
-    final storage = await Storage.instance;
-    final msgs = storage.getMessages(conversationId);
-    for (final m in msgs) {
-      if (m['id'] == messageId) {
-        m['is_favorite'] = (m['is_favorite'] as int? ?? 0) == 1 ? 0 : 1;
-        break;
-      }
-    }
-    await storage.saveMessages(conversationId, msgs);
+    final db = await DatabaseHelper.database;
+    await db.rawUpdate(
+      'UPDATE messages SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END WHERE id = ?',
+      [messageId],
+    );
   }
 
   Future<List<Map<String, dynamic>>> getFavorites() async {
-    final storage = await Storage.instance;
-    final allConvs = storage.getAllConversations();
-    final favorites = <Map<String, dynamic>>[];
-    for (final conv in allConvs) {
-      final msgs = storage.getMessages(conv['id'] as String);
-      for (final m in msgs) {
-        if ((m['is_favorite'] as int? ?? 0) == 1) {
-          favorites.add({
-            ...m,
-            'conversation_title': conv['title'] as String? ?? 'Chat',
-          });
-        }
-      }
-    }
-    favorites.sort((a, b) => (b['created_at'] as int).compareTo(a['created_at'] as int));
-    return favorites;
+    final db = await DatabaseHelper.database;
+    final maps = await db.rawQuery('''
+      SELECT m.*, c.title as conversation_title
+      FROM messages m
+      LEFT JOIN conversations c ON m.conversation_id = c.id
+      WHERE m.is_favorite = 1
+      ORDER BY m.created_at DESC
+    ''');
+    return maps;
   }
 
   Future<Set<String>> searchConversationIds(String query) async {
-    final storage = await Storage.instance;
-    final allConvs = storage.getAllConversations();
-    final matches = <String>{};
-    for (final conv in allConvs) {
-      final msgs = storage.getMessages(conv['id'] as String);
-      for (final msg in msgs) {
-        if ((msg['content'] as String).toLowerCase().contains(query.toLowerCase())) {
-          matches.add(conv['id'] as String);
-          break;
-        }
-      }
-    }
-    return matches;
+    final db = await DatabaseHelper.database;
+    final maps = await db.rawQuery(
+      'SELECT DISTINCT conversation_id FROM messages WHERE content LIKE ?',
+      ['%$query%'],
+    );
+    return maps.map((m) => m['conversation_id'] as String).toSet();
+  }
+
+  Future<void> deleteAfterMessage(String conversationId, String messageId) async {
+    final db = await DatabaseHelper.database;
+    final msg = await db.query('messages', where: 'id = ?', whereArgs: [messageId]);
+    if (msg.isEmpty) return;
+    final createdAt = msg.first['created_at'] as int;
+    await db.delete(
+      'messages',
+      where: 'conversation_id = ? AND created_at >= ?',
+      whereArgs: [conversationId, createdAt],
+    );
   }
 }

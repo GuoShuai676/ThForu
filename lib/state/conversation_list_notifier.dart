@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/conversation.dart';
 import '../db/conversation_dao.dart';
@@ -6,7 +7,8 @@ class ConversationListNotifier extends StateNotifier<List<Conversation>> {
   final ConversationDao _dao;
 
   ConversationListNotifier(this._dao) : super([]) {
-    load();
+    // Defer initial load to avoid blocking UI
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
   Future<void> load() async {
@@ -58,5 +60,17 @@ class ConversationListNotifier extends StateNotifier<List<Conversation>> {
     conv.updatedAt = DateTime.now();
     await _dao.update(conv);
     state = state.map((c) => c.id == id ? conv : c).toList();
+  }
+
+  Future<void> switchModel(String id, String modelName, String? reasoningEffort) async {
+    await _dao.updateModel(id, modelName, reasoningEffort);
+    state = state.map((c) {
+      if (c.id == id) {
+        c.modelName = modelName;
+        c.reasoningEffort = reasoningEffort;
+        c.updatedAt = DateTime.now();
+      }
+      return c;
+    }).toList();
   }
 }

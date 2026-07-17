@@ -6,7 +6,8 @@ class Conversation {
   final String id;
   String title;
   final String providerConfigId;
-  final String modelName;
+  String modelName;
+  String? reasoningEffort;
   final String? expertPanelId;
   final String? personaId;
   final DateTime createdAt;
@@ -19,6 +20,7 @@ class Conversation {
     this.title = 'New Chat',
     required this.providerConfigId,
     required this.modelName,
+    this.reasoningEffort,
     this.expertPanelId,
     this.personaId,
     DateTime? createdAt,
@@ -34,6 +36,7 @@ class Conversation {
         'title': title,
         'provider_config_id': providerConfigId,
         'model_name': modelName,
+        'reasoning_effort': reasoningEffort,
         'expert_panel_id': expertPanelId,
         'persona_id': personaId,
         'created_at': createdAt.millisecondsSinceEpoch,
@@ -48,6 +51,7 @@ class Conversation {
       title: map['title'] as String,
       providerConfigId: map['provider_config_id'] as String,
       modelName: map['model_name'] as String,
+      reasoningEffort: map['reasoning_effort'] as String?,
       expertPanelId: map['expert_panel_id'] as String?,
       personaId: map['persona_id'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),

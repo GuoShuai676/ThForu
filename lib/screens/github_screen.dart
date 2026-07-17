@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,18 +56,18 @@ class GitHubScreen extends ConsumerStatefulWidget {
 class _GitHubScreenState extends ConsumerState<GitHubScreen> {
   List<Map<String, dynamic>> _repos = [];
   String? _activeRepoId;
-  bool _loading = true;
   String? _connectingStatus;
-  List<_RepoFile> _files = [];
   bool _showingTree = false;
   _RepoFile? _selectedFile;
   String _fileSearchQuery = '';
   String _selectedCodeText = '';
+  bool _codeHasSelection = false;
   bool _showChat = false;
   final _chatInputCtrl = TextEditingController();
   final _chatScrollCtrl = ScrollController();
   final List<_ChatMsg> _chatMessages = [];
   bool _chatStreaming = false;
+  bool _chatUserScrolledUp = false;
   AIProviderConfig? _chatProvider;
   final Set<String> _collapsedFolders = {};
   bool _showFileSearch = false;
@@ -123,14 +122,31 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
   @override
   void initState() {
     super.initState();
+    // Chat history depends on the loaded repos (its storage key is derived
+    // from the set of connected repos), so it is loaded once repos are ready
+    // inside _loadRepos() — calling it here while _repos is still empty would
+    // read the wrong key and silently lose history on every restart.
     _loadRepos();
-    _loadChatHistory();
+    _chatScrollCtrl.addListener(_onChatScroll);
+  }
+
+  void _onChatScroll() {
+    if (!_chatScrollCtrl.hasClients) return;
+    // ListView is non-reversed: pixels 0 => top, maxExtent => bottom.
+    final pos = _chatScrollCtrl.position;
+    final distFromBottom = pos.maxScrollExtent - pos.pixels;
+    if (distFromBottom > 120 && !_chatUserScrolledUp) {
+      _chatUserScrolledUp = true;
+    } else if (distFromBottom < 40 && _chatUserScrolledUp) {
+      _chatUserScrolledUp = false;
+    }
   }
 
   @override
   void dispose() {
     _saveChatHistory();
     _chatInputCtrl.dispose();
+    _chatScrollCtrl.removeListener(_onChatScroll);
     _chatScrollCtrl.dispose();
     _fileSearchCtrl.dispose();
     super.dispose();
@@ -142,7 +158,10 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
     final activeId = prefs.getString('github_active_repo_id');
     if (json != null) {
       final list = (jsonDecode(json) as List).cast<Map<String, dynamic>>();
-      final valid = list.where((r) => r['files'] != null && (r['files'] as List).isNotEmpty && r['status'] == 'done').toList();
+      // Keep connected repos even if they contain zero code files (e.g.
+      // docs-only / binary repos); dropping them silently right after a
+      // successful "已连接" would be confusing.
+      final valid = list.where((r) => r['files'] != null && r['status'] == 'done').toList();
       final removedCount = list.length - valid.length;
       if (removedCount > 0) await prefs.setString('github_repos', jsonEncode(valid));
       String? validActiveId = activeId;
@@ -150,8 +169,10 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
         validActiveId = null;
         await prefs.remove('github_active_repo_id');
       }
-      if (mounted) setState(() { _repos = valid; _activeRepoId = validActiveId; _loading = false; });
-    } else if (mounted) setState(() { _loading = false; });
+      if (mounted) setState(() { _repos = valid; _activeRepoId = validActiveId; });
+      // Now that repos are loaded, the chat-history key is stable — load it.
+      _loadChatHistory();
+    } else if (mounted) setState(() {});
   }
 
   // ==================== Repo Management ====================
@@ -247,7 +268,8 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
       if (token != null && token.isNotEmpty) headers['Authorization'] = 'token $token';
       final branch = repo['branch'] ?? 'main';
       final resp = await dio.get('https://api.github.com/repos/${repo['owner']}/${repo['repo']}/git/trees/$branch?recursive=1', options: Options(headers: headers));
-      if (resp.statusCode == 200) {
+      final sc = resp.statusCode;
+      if (sc == 200) {
         final blobs = (resp.data['tree'] as List).where((t) => t['type'] == 'blob' && _codeExtensions.contains(t['path'].split('.').last.toLowerCase())).toList();
         final files = <Map<String, dynamic>>[];
         for (final b in blobs.take(100)) {
@@ -255,14 +277,30 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
         }
         repo['files'] = files;
         repo['fileCount'] = files.length;
+        repo['connectedAt'] = DateTime.now().toIso8601String();
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('github_repos', jsonEncode(_repos));
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已刷新 ${files.length} 个文件')));
+        if (mounted) {
+          setState(() {});
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已刷新 ${files.length} 个文件')));
+        }
+      } else if (sc == 401) {
+        throw Exception('Token 无效，请检查后重试');
+      } else if (sc == 403) {
+        throw Exception('API 速率限制，请填写或更换 Token');
+      } else if (sc == 404) {
+        throw Exception('仓库不存在或分支已变更');
+      } else {
+        throw Exception('HTTP $sc');
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('刷新失败: $e')));
+      String msg = '刷新失败: $e';
+      final s = e.toString();
+      if (s.contains('SocketException')) msg = '网络连接失败';
+      else if (s.contains('timed out')) msg = '连接超时';
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
-    setState(() => _connectingStatus = null);
+    if (mounted) setState(() => _connectingStatus = null);
   }
 
   Future<void> _deleteRepo(Map<String, dynamic> repo) async {
@@ -337,6 +375,10 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
     if (text.isEmpty) return;
     _chatInputCtrl.clear();
     setState(() { _chatMessages.add(_ChatMsg(role: 'user', content: text)); _chatStreaming = true; });
+    // User just sent a message → snap back to bottom for the new turn.
+    _chatUserScrolledUp = false;
+    _scrollChatBottom(force: true);
+    if (_showFileSearch) setState(() { _showFileSearch = false; _fileSearchResults = []; });
     _saveChatHistory();
 
     final providers = ref.read(providerListProvider);
@@ -355,6 +397,9 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
       }
 
       if (fileTree.isNotEmpty) {
+        // Give the user visible feedback during the (slow) plan + fetch phase.
+        _updateThinking('🔎 正在分析仓库目录，挑选与问题相关的文件...');
+
         final planPrompt = '你是代码分析 Agent。用户有一个或多个 GitHub 仓库连接。你可以跨仓库引用文件。\n'
             '以下是所有仓库的完整文件目录树：\n$fileTree\n'
             '用户问题：$text\n\n'
@@ -364,6 +409,8 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
         String planResult = '';
         await for (final chunk in aiService.streamChat(history: [], newUserMessage: planPrompt)) {
           planResult += chunk;
+          // Live-update the thinking bubble so the user sees the model reasoning.
+          _updateThinking('🔎 正在分析仓库目录，挑选相关文件...\n\n$planResult');
         }
 
         final selectedPaths = <_ScoredFile>[];
@@ -383,6 +430,11 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
           }
         }
 
+        final pickedList = selectedPaths.map((sf) => '- [${sf.repo}] ${sf.file['path']}').join('\n');
+        _updateThinking(selectedPaths.isEmpty
+            ? '🔍 未在仓库目录中找到明确相关的文件，将直接基于通用知识回答...'
+            : '📖 已选取 ${selectedPaths.length} 个相关文件，正在读取代码...\n$pickedList');
+
         final codeBuffer = StringBuffer();
         codeBuffer.writeln('[仓库代码]\n');
         for (final sf in selectedPaths.take(8)) {
@@ -392,6 +444,10 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
             codeBuffer.writeln(content);
             codeBuffer.writeln();
           }
+        }
+
+        if (selectedPaths.isNotEmpty) {
+          _updateThinking('🤖 已读取 ${selectedPaths.take(8).length} 个文件，正在生成回答...');
         }
 
         final systemPrompt = '你是代码助手，帮助用户理解 GitHub 仓库中的代码。你可以跨仓库引用代码。用中文回答。\n'
@@ -409,9 +465,7 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
             if (_chatMessages.isNotEmpty && _chatMessages.last.role == 'assistant') _chatMessages.removeLast();
             _chatMessages.add(_ChatMsg(role: 'assistant', content: fullContent));
           });
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_chatScrollCtrl.hasClients) _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
-          });
+          _scrollChatBottom();
         }
       } else {
         String fullContent = '';
@@ -425,9 +479,7 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
             if (_chatMessages.isNotEmpty && _chatMessages.last.role == 'assistant') _chatMessages.removeLast();
             _chatMessages.add(_ChatMsg(role: 'assistant', content: fullContent));
           });
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_chatScrollCtrl.hasClients) _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
-          });
+          _scrollChatBottom();
         }
       }
       setState(() { _chatStreaming = false; });
@@ -435,13 +487,12 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
       setState(() { _chatMessages.add(_ChatMsg(role: 'assistant', content: '错误: $e')); _chatStreaming = false; });
     }
     _saveChatHistory();
-    if (_chatScrollCtrl.hasClients) _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
+    _scrollChatBottom(force: true);
   }
 
   // ==================== File Search for @file ====================
 
   void _searchFilesForMention(String query) {
-    if (query.isEmpty) { setState(() { _fileSearchResults = []; _showFileSearch = false; }); return; }
     final allFiles = <Map<String, dynamic>>[];
     for (final repo in _repos.where((r) => r['status'] == 'done')) {
       for (final f in (repo['files'] as List).cast<Map<String, dynamic>>()) {
@@ -449,8 +500,35 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
       }
     }
     final q = query.toLowerCase();
-    final results = allFiles.where((f) => (f['path'] as String).toLowerCase().contains(q)).take(8).toList();
+    // Empty query (user just typed '@') shows the top files as a starting point.
+    final results = q.isEmpty
+        ? allFiles.take(8).toList()
+        : allFiles.where((f) => (f['path'] as String).toLowerCase().contains(q)).take(8).toList();
     setState(() { _fileSearchResults = results; _showFileSearch = results.isNotEmpty; });
+  }
+
+  // ==================== Chat helpers ====================
+
+  void _scrollChatBottom({bool force = false}) {
+    if (!force && _chatUserScrolledUp) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_chatScrollCtrl.hasClients) return;
+      if (!force && _chatUserScrolledUp) return;
+      _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
+    });
+  }
+
+  /// Replace (or append) the trailing "thinking" assistant bubble shown to the
+  /// user while the agent is still planning / fetching files. The streaming
+  /// loop later overwrites this bubble with the real answer.
+  void _updateThinking(String text) {
+    setState(() {
+      if (_chatMessages.isNotEmpty && _chatMessages.last.role == 'assistant') {
+        _chatMessages.removeLast();
+      }
+      _chatMessages.add(_ChatMsg(role: 'assistant', content: text));
+    });
+    _scrollChatBottom();
   }
 
   // ==================== Build ====================
@@ -469,7 +547,8 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
     final allFiles = activeRepo.isNotEmpty ? (activeRepo.first['files'] as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
     final filteredFiles = _fileSearchQuery.isEmpty ? allFiles : allFiles.where((f) => (f['path'] as String).toLowerCase().contains(_fileSearchQuery.toLowerCase())).toList();
 
-    return Scaffold(
+    return Stack(children: [
+    Scaffold(
       appBar: AppBar(
         title: Text(_showingTree ? (activeRepo.isNotEmpty ? activeRepo.first['id'] ?? '文件树' : '文件树') : 'GitHub 代码库'),
         leading: _showingTree ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() { _showingTree = false; _selectedFile = null; })) : null,
@@ -493,20 +572,24 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
               : _showingTree
                   ? (_selectedFile != null ? _buildCodeView(theme) : _buildFileList(theme, filteredFiles))
                   : _buildRepoList(theme, activeRepo),
-      floatingActionButton: activeRepo.isNotEmpty && activeRepo.first['status'] == 'done' && !_showChat && _selectedFile == null
-          ? Column(mainAxisSize: MainAxisSize.min, children: [
-              FloatingActionButton.small(heroTag: 'tree', onPressed: () => setState(() => _showingTree = !_showingTree), child: Icon(_showingTree ? Icons.list : Icons.account_tree)),
-              const SizedBox(height: 8),
-              FloatingActionButton(heroTag: 'chat', onPressed: () {
-                setState(() => _showChat = true);
+      floatingActionButton: activeRepo.isNotEmpty && activeRepo.first['status'] == 'done' && !_showChat
+          ? Padding(
+              padding: EdgeInsets.only(bottom: _selectedFile != null ? 64 : 0),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                if (_selectedFile == null)
+                  FloatingActionButton.small(heroTag: 'tree', onPressed: () => setState(() => _showingTree = !_showingTree), child: Icon(_showingTree ? Icons.list : Icons.account_tree)),
+                if (_selectedFile == null) const SizedBox(height: 8),
+                FloatingActionButton(heroTag: 'chat', onPressed: () {
+                  setState(() => _showChat = true);
                 _loadChatHistory();
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_chatScrollCtrl.hasClients) _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
-                });
+                _scrollChatBottom(force: true);
               }, child: const Icon(Icons.chat)),
-            ])
+            ]),
+            )
           : null,
-      bottomSheet: _showChat ? _buildChatSheet(theme) : null,
+      ),
+      if (_showChat) Positioned.fill(child: _buildChatPage(theme)),
+    ],
     );
   }
 
@@ -624,179 +707,301 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
 
   Widget _buildCodeView(ThemeData theme) {
     final file = _selectedFile!;
+    final raw = file.content ?? '';
+    final allLines = raw.split('\n');
+    final lineCount = allLines.length;
+
+    // Performance guard: very large files can freeze SelectableText.rich.
+    const maxHighlightLines = 800;
+    final useHighlight = lineCount <= maxHighlightLines;
+
     return Column(children: [
+      // Header bar
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         child: Row(children: [
           Icon(_fileIcon(file.path), size: 18), const SizedBox(width: 8),
           Expanded(child: Text(file.path, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis)),
           Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
             child: Text(file.language, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary))),
-          const SizedBox(width: 8),
-          IconButton(icon: const Icon(Icons.copy, size: 18), tooltip: '复制', onPressed: () { Clipboard.setData(ClipboardData(text: file.content ?? '')); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'))); }),
+          const SizedBox(width: 4),
+          IconButton(icon: const Icon(Icons.content_copy, size: 18), tooltip: '复制全文', onPressed: () { Clipboard.setData(ClipboardData(text: raw)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制全文'))); }),
           IconButton(icon: const Icon(Icons.arrow_back, size: 18), tooltip: '返回', onPressed: () => setState(() => _selectedFile = null)),
         ]),
       ),
+      // Code + line numbers in ONE scroll view (no sync needed)
       Expanded(child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SelectableText.rich(
-          _highlightCode(file.content ?? '', file.language, theme),
-          onSelectionChanged: (selection, cause) {
-            if (!selection.isCollapsed) {
-              final text = file.content ?? '';
-              final start = selection.start;
-              final end = selection.end.clamp(0, text.length);
-              if (start >= 0 && start < end) _selectedCodeText = text.substring(start, end);
-            }
-          },
-        ),
-      )),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5), border: Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
-        child: Row(children: [
-          Icon(Icons.help_outline, size: 16, color: theme.colorScheme.primary),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Line numbers — bounded width, grows vertically
+          SizedBox(
+            width: (lineCount.toString().length * 9.0).clamp(28.0, 52.0) + 16,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              for (int i = 0; i < lineCount; i++)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Text('${i + 1}', style: TextStyle(fontSize: 13, height: 1.45, fontFamily: 'monospace', color: theme.colorScheme.outline)),
+                ),
+            ]),
+          ),
+          Container(width: 1, color: theme.dividerColor.withValues(alpha: 0.3)),
           const SizedBox(width: 8),
-          Expanded(child: Text('选中代码后点击下方按钮向 AI 提问', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary))),
-          FilledButton.tonal(
-            onPressed: () async {
-              final selected = _selectedCodeText;
-              if (selected.isNotEmpty && selected != file.content) {
-                setState(() {
-                  _showChat = true;
-                  _chatInputCtrl.text = '(文件: ${file.path}) 这段代码是什么意思？\n\n```\n$selected\n```';
-                });
-                _loadChatHistory();
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_chatScrollCtrl.hasClients) _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
-                });
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先长按选中代码')));
-              }
-            },
-            child: const Text('问 AI', style: TextStyle(fontSize: 12)),
+          // Code
+          Expanded(child: useHighlight
+            ? SelectableText.rich(
+                _highlightCode(raw, file.language, theme),
+                onSelectionChanged: (selection, cause) {
+                  if (selection.isCollapsed) { setState(() { _selectedCodeText = ''; _codeHasSelection = false; }); return; }
+                  final start = selection.start;
+                  final end = selection.end.clamp(0, raw.length);
+                  if (start >= 0 && start < end) {
+                    setState(() { _selectedCodeText = raw.substring(start, end); _codeHasSelection = true; });
+                  }
+                },
+              )
+            : SelectableText(
+                raw,
+                style: TextStyle(fontSize: 13, height: 1.45, fontFamily: 'monospace', color: theme.colorScheme.onSurface),
+                onSelectionChanged: (selection, cause) {
+                  if (selection.isCollapsed) { setState(() { _selectedCodeText = ''; _codeHasSelection = false; }); return; }
+                  final start = selection.start;
+                  final end = selection.end.clamp(0, raw.length);
+                  if (start >= 0 && start < end) {
+                    setState(() { _selectedCodeText = raw.substring(start, end); _codeHasSelection = true; });
+                  }
+                },
+              ),
           ),
         ]),
-      ),
+      )),
+      // Bottom bar: selection toolbar or hint
+      if (_codeHasSelection)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(color: theme.colorScheme.primaryContainer.withValues(alpha: 0.6), border: Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
+          child: Row(children: [
+            Icon(Icons.format_quote, size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(child: Text(
+              _selectedCodeText.split('\n').length > 1 ? '已选中 ${_selectedCodeText.split('\n').length} 行' : '已选中 ${_selectedCodeText.length} 字符',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary))),
+            TextButton.icon(
+              icon: const Icon(Icons.copy, size: 16), label: const Text('复制'),
+              onPressed: () { Clipboard.setData(ClipboardData(text: _selectedCodeText)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制选中代码'), duration: Duration(seconds: 1))); },
+            ),
+            const SizedBox(width: 4),
+            FilledButton.icon(
+              icon: const Icon(Icons.smart_toy, size: 16), label: const Text('问 AI'),
+              onPressed: () {
+                final selected = _selectedCodeText;
+                if (selected.isEmpty) return;
+                setState(() { _showChat = true; _chatInputCtrl.text = '(文件: ${file.path}) 这段代码是什么意思？\n\n```\n$selected\n```'; _codeHasSelection = false; });
+                _loadChatHistory();
+                _scrollChatBottom(force: true);
+              },
+            ),
+          ]),
+        )
+      else
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3), border: Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
+          child: Row(children: [
+            Icon(Icons.touch_app, size: 18, color: theme.colorScheme.outline),
+            const SizedBox(width: 8),
+            Expanded(child: Text('长按选中代码即可向 AI 提问', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline))),
+            TextButton(onPressed: () => setState(() => _selectedFile = null), child: const Text('关闭文件')),
+          ]),
+        ),
     ]);
   }
 
-  // ==================== Chat Sheet ====================
+  // ==================== Chat Page (fullscreen) ====================
 
-  Widget _buildChatSheet(ThemeData theme) {
+  Widget _buildChatPage(ThemeData theme) {
     final doneRepos = _repos.where((r) => r['status'] == 'done').toList();
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.55,
-      decoration: BoxDecoration(color: theme.scaffoldBackgroundColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(16)), boxShadow: const [BoxShadow(blurRadius: 12, color: Colors.black26)]),
-      child: Column(children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Icon(Icons.chat_bubble_outline, size: 18), const SizedBox(width: 8),
-              Text('代码问答', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)), const Spacer(),
-              Consumer(builder: (ctx, ref, _) {
-                final providers = ref.watch(providerListProvider);
-                if (providers.isEmpty) return const SizedBox();
-                return DropdownButton<AIProviderConfig>(
-                  value: _chatProvider, hint: const Text('模型', style: TextStyle(fontSize: 12)), isDense: true, underline: const SizedBox(),
-                  items: providers.map((p) => DropdownMenuItem<AIProviderConfig>(value: p, child: Text(p.name, style: const TextStyle(fontSize: 12)))).toList(),
-                  onChanged: (v) => setState(() => _chatProvider = v),
-                );
-              }),
-              const SizedBox(width: 4),
-              IconButton(icon: const Icon(Icons.close, size: 18), tooltip: '关闭', onPressed: () { setState(() => _showChat = false); _saveChatHistory(); }, constraints: const BoxConstraints(minWidth: 32, minHeight: 32), padding: EdgeInsets.zero),
-            ]),
-            if (doneRepos.isNotEmpty) Padding(
-              padding: const EdgeInsets.only(top: 6),
+    // Intercept the back button so closing the chat overlay doesn't pop the
+    // whole GitHub tab — only collapses the chat overlay first.
+    return PopScope(
+      canPop: !_showChat,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _showChat) {
+          setState(() { _showChat = false; _saveChatHistory(); });
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: '返回',
+            onPressed: () { setState(() { _showChat = false; _saveChatHistory(); }); },
+          ),
+          title: const Text('代码问答'),
+          actions: [
+            Consumer(builder: (ctx, ref, _) {
+              final providers = ref.watch(providerListProvider);
+              if (providers.isEmpty) return const SizedBox();
+              return DropdownButton<AIProviderConfig>(
+                value: _chatProvider, hint: const Text('模型', style: TextStyle(fontSize: 12)), isDense: true, underline: const SizedBox(),
+                items: providers.map((p) => DropdownMenuItem<AIProviderConfig>(value: p, child: Text(p.name, style: const TextStyle(fontSize: 12)))).toList(),
+                onChanged: (v) => setState(() => _chatProvider = v),
+              );
+            }),
+          ],
+        ),
+        body: Column(children: [
+          if (doneRepos.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
               child: Wrap(spacing: 6, runSpacing: 4, children: doneRepos.map((r) => Chip(
                 avatar: const Icon(Icons.check_circle, size: 14, color: Colors.green),
                 label: Text(r['id'] as String, style: const TextStyle(fontSize: 11)),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, visualDensity: VisualDensity.compact, padding: EdgeInsets.zero,
               )).toList()),
+            )
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
+              child: Text('暂无已连接仓库', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
             ),
-            if (doneRepos.isEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('暂无已连接仓库', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline))),
-          ]),
-        ),
-        Expanded(
-          child: Stack(children: [
-            _chatMessages.isEmpty
-                ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.code, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.5)), const SizedBox(height: 12), Text('问我关于代码的问题', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline))]))
-                : ListView.builder(
-                    controller: _chatScrollCtrl, padding: const EdgeInsets.all(12),
-                    itemCount: _chatMessages.length + (_chatStreaming ? 1 : 0),
-                    itemBuilder: (ctx, i) {
-                      if (i == _chatMessages.length) return const Padding(padding: EdgeInsets.all(8), child: Align(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))));
-                      final msg = _chatMessages[i];
-                      final isUser = msg.role == 'user';
-                      return Align(
-                        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
-                          decoration: BoxDecoration(color: isUser ? theme.colorScheme.primaryContainer : theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-                          child: _buildChatMessageContent(msg, theme),
-                        ),
-                      );
-                    },
-                  ),
-            if (_showFileSearch)
-              Positioned(left: 12, right: 12, bottom: 60, child: Card(
-                elevation: 8, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Padding(padding: const EdgeInsets.all(8), child: TextField(
-                    controller: _fileSearchCtrl, autofocus: true,
-                    decoration: const InputDecoration(hintText: '搜索文件名...', border: InputBorder.none, isDense: true, prefixIcon: Icon(Icons.search, size: 18)),
-                    onChanged: _searchFilesForMention,
-                  )),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: ListView.builder(
-                      shrinkWrap: true, itemCount: _fileSearchResults.length,
+          Expanded(
+            child: Stack(children: [
+              _chatMessages.isEmpty
+                  ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.code, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.5)), const SizedBox(height: 12), Text('问我关于代码的问题', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline))]))
+                  : ListView.builder(
+                      controller: _chatScrollCtrl,
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
+                      itemCount: _chatMessages.length + (_chatStreaming ? 1 : 0),
                       itemBuilder: (ctx, i) {
-                        final f = _fileSearchResults[i];
-                        return ListTile(
-                          dense: true,
-                          leading: Icon(_fileIcon(f['path'] as String), size: 16),
-                          title: Text((f['path'] as String).split('/').last, style: const TextStyle(fontSize: 13)),
-                          subtitle: Text('${f['repoId']} · ${f['path']}', style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          onTap: () {
-                            _chatInputCtrl.text += '[${f['repoId']}] ${f['path']}';
-                            setState(() { _showFileSearch = false; _fileSearchResults = []; });
-                            _fileSearchCtrl.clear();
-                          },
+                        if (i == _chatMessages.length) {
+                          return const Padding(padding: EdgeInsets.all(8), child: Align(alignment: Alignment.centerLeft, child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))));
+                        }
+                        final msg = _chatMessages[i];
+                        final isUser = msg.role == 'user';
+                        return Align(
+                          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+                            decoration: BoxDecoration(color: isUser ? theme.colorScheme.primaryContainer : theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+                            child: _buildChatMessageContent(msg, theme),
+                          ),
                         );
                       },
                     ),
+              // "Scroll to bottom" floating button, shown only while streaming
+              // and when the user has scrolled away from the bottom.
+              if (_chatStreaming && _chatUserScrolledUp)
+                Positioned(right: 16, bottom: 80, child: FloatingActionButton.small(
+                  heroTag: 'gh_chat_bottom',
+                  onPressed: () { _chatUserScrolledUp = false; _scrollChatBottom(force: true); },
+                  child: const Icon(Icons.keyboard_double_arrow_down),
+                )),
+              // @file suggestion overlay — tapping outside dismisses it.
+              if (_showFileSearch)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () { setState(() { _showFileSearch = false; _fileSearchResults = []; _fileSearchCtrl.clear(); FocusScope.of(context).unfocus(); }); },
+                    child: Container(color: Colors.black45),
                   ),
-                ]),
+                ),
+              if (_showFileSearch)
+                Positioned(left: 12, right: 12, bottom: 72, child: Card(
+                  elevation: 8, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Padding(padding: const EdgeInsets.fromLTRB(8, 8, 4, 8), child: Row(children: [
+                      const Icon(Icons.search, size: 18, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(child: TextField(
+                        controller: _fileSearchCtrl, autofocus: true,
+                        decoration: const InputDecoration(hintText: '搜索文件名...', border: InputBorder.none, isDense: true),
+                        onChanged: _searchFilesForMention,
+                        onSubmitted: (_) { setState(() { _showFileSearch = false; _fileSearchResults = []; }); },
+                      )),
+                      IconButton(icon: const Icon(Icons.close, size: 18), tooltip: '关闭', onPressed: () { setState(() { _showFileSearch = false; _fileSearchResults = []; _fileSearchCtrl.clear(); }); }),
+                    ])),
+                    const Divider(height: 1),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      child: _fileSearchResults.isEmpty
+                          ? const Padding(padding: EdgeInsets.all(16), child: Text('没有匹配的文件', style: TextStyle(fontSize: 13, color: Colors.grey)))
+                          : ListView.builder(
+                              shrinkWrap: true, itemCount: _fileSearchResults.length,
+                              itemBuilder: (ctx, i) {
+                                final f = _fileSearchResults[i];
+                                return ListTile(
+                                  dense: true,
+                                  leading: Icon(_fileIcon(f['path'] as String), size: 16),
+                                  title: Text((f['path'] as String).split('/').last, style: const TextStyle(fontSize: 13)),
+                                  subtitle: Text('${f['repoId']} · ${f['path']}', style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  onTap: () {
+                                    final mention = '[${f['repoId']}] ${f['path']}';
+                                    final text = _chatInputCtrl.text;
+                                    final atIdx = text.lastIndexOf('@');
+                                    if (atIdx >= 0) {
+                                      _chatInputCtrl.text = text.substring(0, atIdx) + mention + ' ';
+                                    } else {
+                                      _chatInputCtrl.text = text + mention;
+                                    }
+                                    _chatInputCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _chatInputCtrl.text.length));
+                                    setState(() { _showFileSearch = false; _fileSearchResults = []; _fileSearchCtrl.clear(); });
+                                    FocusScope.of(context).requestFocus(FocusNode());
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ]),
+                )),
+            ]),
+          ),
+          // Input bar
+          SafeArea(top: false, child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            decoration: BoxDecoration(color: theme.colorScheme.surface, border: Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              IconButton(
+                icon: const Icon(Icons.alternate_email, size: 22),
+                tooltip: '@文件',
+                onPressed: () {
+                  setState(() {
+                    _showFileSearch = !_showFileSearch;
+                    if (_showFileSearch) { _fileSearchCtrl.clear(); _searchFilesForMention(''); }
+                    else { _fileSearchResults = []; }
+                  });
+                },
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                padding: EdgeInsets.zero,
+              ),
+              const SizedBox(width: 4),
+              Expanded(child: TextField(
+                controller: _chatInputCtrl, maxLines: null,
+                decoration: InputDecoration(hintText: '问我代码相关的问题...（输入 @ 唤起文件）', contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), filled: true, fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4)),
+                onSubmitted: (_) => _chatSend(),
+                onChanged: (v) {
+                  final at = v.lastIndexOf('@');
+                  if (at >= 0) {
+                    final after = v.substring(at + 1);
+                    if (!after.contains(' ') && after.length <= 64) {
+                      _searchFilesForMention(after);
+                      return;
+                    }
+                  }
+                  setState(() { _showFileSearch = false; _fileSearchResults = []; });
+                },
               )),
-          ]),
-        ),
-        Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          decoration: BoxDecoration(border: Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)))),
-          child: Row(children: [
-            IconButton(
-              icon: const Icon(Icons.alternate_email, size: 20),
-              tooltip: '@文件',
-              onPressed: () { setState(() => _showFileSearch = !_showFileSearch); if (_showFileSearch) _fileSearchCtrl.clear(); },
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              padding: EdgeInsets.zero,
-            ),
-            const SizedBox(width: 4),
-            Expanded(child: TextField(
-              controller: _chatInputCtrl, maxLines: null,
-              decoration: InputDecoration(hintText: '问我代码相关的问题...', contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), filled: true, fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4)),
-              onSubmitted: (_) => _chatSend(),
-            )),
-            const SizedBox(width: 8),
-            IconButton(icon: Icon(Icons.send, color: _chatStreaming ? theme.colorScheme.outline : theme.colorScheme.primary), onPressed: _chatStreaming ? null : _chatSend),
-          ]),
-        ),
-      ]),
+              const SizedBox(width: 8),
+              IconButton(icon: Icon(Icons.send, color: _chatStreaming ? theme.colorScheme.outline : theme.colorScheme.primary), onPressed: _chatStreaming ? null : _chatSend),
+            ]),
+          )),
+        ]),
+      ),
     );
   }
 
@@ -850,7 +1055,7 @@ class _GitHubScreenState extends ConsumerState<GitHubScreen> {
     for (final m in pathRe.allMatches(text)) {
       if (m.start > pos) spans.add(TextSpan(text: text.substring(pos, m.start)));
       final repoId = m.group(1);
-      final filePath = m.group(2) ?? m.group(3) ?? m.group(4) ?? m.group(5) ?? m.group(6) ?? m.group(7) ?? '';
+      final filePath = m.group(2) ?? m.group(3) ?? m.group(4) ?? m.group(5) ?? m.group(6) ?? m.group(7) ?? m.group(8) ?? '';
       final displayPath = repoId != null ? '[$repoId] $filePath' : filePath;
       spans.add(WidgetSpan(child: GestureDetector(
         onTap: () => _openFileByPath(filePath),

@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import 'package:dio/dio.dart';
 import '../models/provider_config.dart';
 import 'search_service.dart';
@@ -29,13 +30,11 @@ class DeepSearchService {
   }) async* {
     final aiService = AiService(config);
 
-    // Phase 1: Decompose query into sub-queries
     onProgress?.call(const DeepSearchProgress(phase: DeepSearchPhase.decomposing, message: '正在拆解问题...'));
     final subQueries = await _decomposeQuery(query, aiService);
     if (isCancelled?.call() == true) return;
 
-    // Phase 2: Search each sub-query
-    final allResults = <SearchResult>[];
+    final searchFutures = <Future<List<SearchResult>>>[];
     for (int i = 0; i < subQueries.length; i++) {
       if (isCancelled?.call() == true) return;
       onProgress?.call(DeepSearchProgress(
@@ -44,12 +43,16 @@ class DeepSearchService {
         current: i + 1,
         total: subQueries.length,
       ));
-      final results = await SearchService.search(subQueries[i], maxResults: 4);
+      searchFutures.add(SearchService.search(subQueries[i], maxResults: 4));
+    }
+
+    final searchResults = await Future.wait(searchFutures);
+    final allResults = <SearchResult>[];
+    for (final results in searchResults) {
       allResults.addAll(results);
     }
     if (isCancelled?.call() == true) return;
 
-    // Deduplicate by URL
     final seen = <String>{};
     final uniqueResults = <SearchResult>[];
     for (final r in allResults) {
@@ -57,7 +60,6 @@ class DeepSearchService {
     }
     final topResults = uniqueResults.take(10).toList();
 
-    // Phase 3: Fetch page content
     for (int i = 0; i < topResults.length; i++) {
       if (isCancelled?.call() == true) return;
       onProgress?.call(DeepSearchProgress(
@@ -66,11 +68,11 @@ class DeepSearchService {
         current: i + 1,
         total: topResults.length,
       ));
-      topResults[i].content = await SearchService.fetchPageContent(topResults[i].url);
     }
+
+    await _fetchPagesConcurrently(topResults, 3, isCancelled);
     if (isCancelled?.call() == true) return;
 
-    // Phase 4: Synthesize report with AI
     onProgress?.call(const DeepSearchProgress(phase: DeepSearchPhase.synthesizing, message: 'AI 正在综合分析...'));
     final sources = topResults.map((r) => '${r.title} (${r.url})').toList();
 
@@ -88,7 +90,7 @@ class DeepSearchService {
 
     final synthesisPrompt = '请基于以下搜索结果，为用户的问题生成一份结构化的研究报告。\n\n'
         '用户问题：$query\n\n'
-        '搜索结果：\n${contextBuffer}\n\n'
+        '搜索结果：\n$contextBuffer\n\n'
         '请按以下格式输出：\n'
         '## 核心观点\n（2-3句话总结）\n\n'
         '## 详细分析\n（分点展开分析）\n\n'
@@ -96,16 +98,17 @@ class DeepSearchService {
         '## 结论与展望\n（总结性观点）\n\n'
         '要求：用中文回答，引用具体来源，内容详实。';
 
-    String fullReport = '';
+    final fullBuf = StringBuffer();
     await for (final chunk in aiService.streamChat(
       history: [],
       newUserMessage: synthesisPrompt,
       isCancelled: isCancelled,
     )) {
-      fullReport += chunk;
+      fullBuf.write(chunk);
+      final content = fullBuf.toString();
       yield DeepSearchResult(
-        summary: fullReport.length > 200 ? '${fullReport.substring(0, 200)}...' : fullReport,
-        detailedReport: fullReport,
+        summary: content.length > 200 ? '${content.substring(0, 200)}...' : content,
+        detailedReport: content,
         sources: sources,
       );
     }
@@ -113,16 +116,66 @@ class DeepSearchService {
     onProgress?.call(const DeepSearchProgress(phase: DeepSearchPhase.done, message: '完成'));
   }
 
+  static Future<void> _fetchPagesConcurrently(
+    List<SearchResult> results,
+    int concurrency,
+    bool Function()? isCancelled,
+  ) async {
+    final semaphore = _Semaphore(concurrency);
+    final futures = <Future<void>>[];
+    for (final result in results) {
+      if (isCancelled?.call() == true) break;
+      futures.add(() async {
+        await semaphore.acquire();
+        try {
+          if (isCancelled?.call() == true) return;
+          result.content = await SearchService.fetchPageContent(result.url);
+        } finally {
+          semaphore.release();
+        }
+      }());
+    }
+    await Future.wait(futures);
+  }
+
   static Future<List<String>> _decomposeQuery(String query, AiService aiService) async {
     final prompt = '请将以下问题拆解为3-5个具体的搜索子查询，每个子查询单独一行，不要编号，不要解释：\n\n$query';
-    String result = '';
+    final buf = StringBuffer();
     await for (final chunk in aiService.streamChat(history: [], newUserMessage: prompt)) {
-      result += chunk;
+      buf.write(chunk);
     }
+    final result = buf.toString();
     final queries = result.split('\n')
         .map((l) => l.trim().replaceAll(RegExp(r'^\d+[\.\)、]\s*'), ''))
         .where((l) => l.isNotEmpty && l.length > 3)
         .toList();
     return queries.isNotEmpty ? queries : [query];
+  }
+}
+
+class _Semaphore {
+  final int _maxConcurrent;
+  int _current = 0;
+  final _waiters = <Completer<void>>[];
+
+  _Semaphore(this._maxConcurrent);
+
+  Future<void> acquire() async {
+    if (_current < _maxConcurrent) {
+      _current++;
+      return;
+    }
+    final completer = Completer<void>();
+    _waiters.add(completer);
+    return completer.future;
+  }
+
+  void release() {
+    if (_waiters.isNotEmpty) {
+      final waiter = _waiters.removeAt(0);
+      waiter.complete();
+    } else {
+      _current--;
+    }
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/persona.dart';
 import '../state/providers.dart';
+import 'assistant_avatar.dart';
 
 class PersonaFormDialog extends ConsumerStatefulWidget {
   final Persona? persona;
@@ -22,20 +23,24 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.persona?.name ?? '');
     _promptCtrl = TextEditingController(text: widget.persona?.systemPrompt ?? '');
-    _iconCode = widget.persona?.avatarIcon ?? Icons.person.codePoint;
-    _colorValue = widget.persona?.avatarColor ?? Colors.indigo.toARGB32();
+    _iconCode = widget.persona?.avatarIcon ?? Icons.smart_toy.codePoint;
+    _colorValue = widget.persona?.avatarColor ?? const Color(0xFF6366F1).toARGB32();
   }
 
   static const _icons = [
-    Icons.person, Icons.school, Icons.work, Icons.science,
-    Icons.psychology, Icons.auto_awesome, Icons.smart_toy,
-    Icons.face, Icons.favorite, Icons.star, Icons.lightbulb,
-    Icons.mic, Icons.code, Icons.brush, Icons.music_note,
+    Icons.smart_toy, Icons.psychology, Icons.auto_awesome, Icons.school,
+    Icons.science, Icons.face, Icons.person, Icons.work,
+    Icons.favorite, Icons.star, Icons.lightbulb, Icons.mic,
+    Icons.code, Icons.brush, Icons.music_note, Icons.camera_alt,
+    Icons.restaurant, Icons.fitness_center, Icons.flight, Icons.pets,
+    Icons.spa, Icons.terrain, Icons.wb_sunny, Icons.nightlight,
+    Icons.anchor, Icons.palette, Icons.theater_comedy, Icons.emoji_emotions,
+    Icons.shield, Icons.rocket_launch, Icons.diamond, Icons.bolt,
   ];
   static const _colors = [
-    Colors.indigo, Colors.blue, Colors.teal, Colors.green,
-    Colors.orange, Colors.red, Colors.pink, Colors.purple,
-    Colors.brown, Colors.blueGrey,
+    Color(0xFF6366F1), Color(0xFF3B82F6), Color(0xFF06B6D4), Color(0xFF10B981),
+    Color(0xFFF59E0B), Color(0xFFEF4444), Color(0xFFEC4899), Color(0xFF8B5CF6),
+    Color(0xFF78716C), Color(0xFF64748B), Color(0xFF14B8A6), Color(0xFFF97316),
   ];
 
   Future<void> _save() async {
@@ -88,13 +93,35 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Center(
+            child: Column(
+              children: [
+                AssistantAvatar(
+                  icon: IconData(_iconCode, fontFamily: 'MaterialIcons'),
+                  color: Color(_colorValue),
+                  size: 64,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _nameCtrl.text.isEmpty ? '角色预览' : _nameCtrl.text,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Color(_colorValue),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           TextField(
             controller: _nameCtrl,
             decoration: const InputDecoration(
               labelText: '角色名称',
               hintText: '例: 数学老师、编程助手',
               border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.badge_outlined),
             ),
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -105,9 +132,13 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
               hintText: '例: 你是一位耐心的数学老师，用简单易懂的语言解释概念...',
               border: OutlineInputBorder(),
               alignLabelWithHint: true,
+              prefixIcon: Padding(
+                padding: EdgeInsets.only(bottom: 60),
+                child: Icon(Icons.auto_stories_outlined),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Text('选择头像', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           Wrap(
@@ -117,11 +148,20 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
               final selected = icon.codePoint == _iconCode;
               return GestureDetector(
                 onTap: () => setState(() => _iconCode = icon.codePoint),
-                child: CircleAvatar(
-                  backgroundColor: selected
-                      ? Color(_colorValue)
-                      : theme.colorScheme.surfaceContainerHighest,
-                  child: Icon(icon, color: selected ? Colors.white : null),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Color(_colorValue)
+                        : theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: selected
+                        ? Border.all(color: Color(_colorValue), width: 2)
+                        : null,
+                  ),
+                  child: Icon(icon, color: selected ? Colors.white : null, size: 22),
                 ),
               );
             }).toList(),
@@ -130,20 +170,24 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
           Text('选择颜色', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
             children: _colors.map((color) {
               final selected = color.toARGB32() == _colorValue;
               return GestureDetector(
                 onTap: () => setState(() => _colorValue = color.toARGB32()),
-                child: Container(
-                  width: 36,
-                  height: 36,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 38,
+                  height: 38,
                   decoration: BoxDecoration(
                     color: color,
                     shape: BoxShape.circle,
                     border: selected
                         ? Border.all(color: theme.colorScheme.onSurface, width: 3)
+                        : null,
+                    boxShadow: selected
+                        ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8, spreadRadius: 1)]
                         : null,
                   ),
                 ),

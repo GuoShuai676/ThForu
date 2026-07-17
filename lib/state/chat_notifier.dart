@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -11,6 +11,7 @@ import '../services/ai_service.dart';
 import '../services/expert_mode_service.dart';
 import '../services/deep_search_service.dart';
 import 'chat_state.dart';
+import '../services/token_counter.dart';
 
 class ChatNotifier extends StateNotifier<ChatState> {
   final String conversationId;
@@ -34,20 +35,53 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Normal (single-model) chat
-  // ---------------------------------------------------------------------------
-  // Max past messages carried as context (≈6 exchanges).
-  // Follow-ups keep just the recent thread, not the full history.
-  static const int _maxContextMessages = 12;
+  static const int _maxContextTokens = 4000;
 
   static List<Message> _trimHistory(List<Message> history) {
-    if (history.length <= _maxContextMessages) return history;
     final keep = <Message>[];
-    if (history.first.role == 'system') keep.add(history.first);
-    final start = history.length - _maxContextMessages;
-    keep.addAll(history.skip(start));
+    int tokens = 0;
+    if (history.isNotEmpty && history.first.role == 'system') {
+      keep.add(history.first);
+      tokens += TokenCounter.estimateTokens(history.first.content);
+    }
+    for (int i = history.length - 1; i >= 0; i--) {
+      final msg = history[i];
+      if (msg.role == 'system' && i == 0) continue;
+      final msgTokens = TokenCounter.estimateTokens(msg.content);
+      if (tokens + msgTokens > _maxContextTokens) break;
+      tokens += msgTokens;
+      final insertPos = (keep.isEmpty || (keep.length == 1 && keep.first.role == 'system')) ? keep.length : 0;
+      keep.insert(insertPos, msg);
+    }
     return keep;
+  }
+
+  Future<void> _autoTitle(String text) async {
+    try {
+      final conv = await _conversationDao.getById(conversationId);
+      if (conv != null && conv.title == 'New Chat') {
+        final title = text.trim().length > 30
+            ? '${text.trim().substring(0, 30)}...'
+            : text.trim();
+        await _conversationDao.updateTitle(conversationId, title);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _updateConversationTime() async {
+    try {
+      final conv = await _conversationDao.getById(conversationId);
+      if (conv != null) {
+        conv.updatedAt = DateTime.now();
+        await _conversationDao.update(conv);
+      }
+    } catch (_) {}
+  }
+
+  List<Message> _updateMessageInState(String msgId, String content) {
+    return state.messages.map((m) {
+      return m.id == msgId ? m.copyWith(content: content) : m;
+    }).toList();
   }
 
   Future<void> sendMessage({
@@ -58,40 +92,24 @@ class ChatNotifier extends StateNotifier<ChatState> {
     String? fileName,
     String? replyToId,
     String? replyPreview,
+    String? overrideModel,
+    String? reasoningEffort,
   }) async {
     if (text.trim().isEmpty && (imagePaths == null || imagePaths.isEmpty) && filePath == null) {
       return;
     }
 
-    // Cancel the previous stream.  The partial response is KEPT in the
-    // conversation so the new request can synthesise everything together.
     _activeRunId++;
     final myRunId = _activeRunId;
 
-    // If there was a running assistant message, persist whatever it
-    // received so far and leave it in the message list.
     if (state.isStreaming) {
       final msgs = state.messages.toList();
-      // The last message is the streaming assistant; its partial content
-      // was already saved to DB chunk-by-chunk, so we just mark the
-      // phase as over.
       state = ChatState(messages: msgs, isStreaming: false);
     }
 
     WakelockPlus.enable();
+    await _autoTitle(text);
 
-    // Auto-title
-    try {
-      final conv = await _conversationDao.getById(conversationId);
-      if (conv != null && conv.title == 'New Chat') {
-        final title = text.trim().length > 30
-            ? '${text.trim().substring(0, 30)}...'
-            : text.trim();
-        await _conversationDao.updateTitle(conversationId, title);
-      }
-    } catch (_) {}
-
-    // Insert user message
     final userMsg = Message(
       conversationId: conversationId,
       role: 'user',
@@ -106,7 +124,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
     await _messageDao.insert(userMsg);
 
-    // Insert empty assistant placeholder
     final assistantMsg = Message(
       conversationId: conversationId,
       role: 'assistant',
@@ -120,11 +137,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
       isStreaming: true,
     );
 
-    // Build history — keep only the most recent messages as context.
     final history = _trimHistory(
-        state.messages.where((m) => m.id != assistantMsg.id).toList());
+        state.messages.where((m) => m.id != assistantMsg.id && m.id != userMsg.id).toList());
 
-    // Inject persona system prompt
     try {
       final conv = await _conversationDao.getById(conversationId);
       if (conv?.personaId != null) {
@@ -157,98 +172,74 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final aiService = AiService(providerConfig);
 
     try {
-      String fullContent = '';
+      final fullBuf = StringBuffer();
       DateTime lastDbWrite = DateTime.now();
       await for (final chunk in aiService.streamChat(
         history: history,
         newUserMessage: text,
         imagePaths: imagePaths,
+        overrideModel: overrideModel,
+        reasoningEffort: reasoningEffort,
         isCancelled: () => _activeRunId != myRunId,
       )) {
         if (_activeRunId != myRunId) {
-          await _messageDao.updateContent(assistantMsg.id, fullContent);
+          await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
           WakelockPlus.disable();
           return;
         }
-        // Strip invalid UTF-16 surrogates
         final clean = StringBuffer();
         for (var i = 0; i < chunk.length; i++) {
           final c = chunk.codeUnitAt(i);
           if (c < 0xD800 || c > 0xDFFF) clean.writeCharCode(c);
         }
-        fullContent += clean.toString();
+        fullBuf.write(clean);
 
-        // DB write: max every 2 seconds (not every chunk)
         final now = DateTime.now();
         if (now.difference(lastDbWrite).inMilliseconds > 2000) {
           lastDbWrite = now;
-          await _messageDao.updateContent(assistantMsg.id, fullContent);
+          await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
         }
 
-        // UI update: max every 200ms for smooth streaming
-        if (now.difference(_lastUiUpdate).inMilliseconds > 200) {
+        if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
           _lastUiUpdate = now;
           try {
-            final updated = state.messages.map((m) {
-              return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
-            }).toList();
+            final content = fullBuf.toString();
             if (_activeRunId != myRunId) return;
-            state = ChatState(messages: updated, isStreaming: true);
+            state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: true);
           } catch (_) {}
         }
       }
 
       if (_activeRunId != myRunId) return;
       try {
-        final finalMessages = state.messages.map((m) {
-          return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
-        }).toList();
-        state = ChatState(messages: finalMessages, isStreaming: false);
+        final content = fullBuf.toString();
+        state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: false);
       } catch (_) {}
     } on AiException catch (e) {
       if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(assistantMsg.id, '错误: ${e.message}');
+      await _messageDao.updateContent(conversationId, assistantMsg.id, '错误: ${e.message}');
       try {
-        final updated = state.messages.map((m) {
-          return m.id == assistantMsg.id
-              ? m.copyWith(content: '错误: ${e.message}')
-              : m;
-        }).toList();
         state = ChatState(
-          messages: updated,
+          messages: _updateMessageInState(assistantMsg.id, '错误: ${e.message}'),
           isStreaming: false,
           errorMessage: e.message,
         );
       } catch (_) {}
     } catch (e) {
       if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(assistantMsg.id, '未知错误: $e');
+      await _messageDao.updateContent(conversationId, assistantMsg.id, '未知错误: $e');
       try {
-        final updated = state.messages.map((m) {
-          return m.id == assistantMsg.id ? m.copyWith(content: '未知错误: $e') : m;
-        }).toList();
         state = ChatState(
-          messages: updated,
+          messages: _updateMessageInState(assistantMsg.id, '未知错误: $e'),
           isStreaming: false,
           errorMessage: e.toString(),
         );
       } catch (_) {}
     }
 
-    try {
-      final conv = await _conversationDao.getById(conversationId);
-      if (conv != null) {
-        conv.updatedAt = DateTime.now();
-        await _conversationDao.update(conv);
-      }
-    } catch (_) {}
-
+    await _updateConversationTime();
     WakelockPlus.disable();
   }
-
-  // ---------------------------------------------------------------------------
-  // Deep search mode
-  // ---------------------------------------------------------------------------
 
   Future<void> sendDeepSearchMessage({
     required AIProviderConfig providerConfig,
@@ -291,66 +282,49 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
     state = ChatState(messages: [...state.messages, userMsg, assistantMsg], isStreaming: true);
 
-    String fullContent = '';
+    final fullBuf = StringBuffer();
     DateTime lastDbWrite = DateTime.now();
-    int phaseIndex = 0;
-    const phases = ['🔍 正在拆解问题...', '🌐 正在搜索...', '📄 正在读取网页...', '🤖 AI 正在分析...'];
 
     try {
       await for (final result in DeepSearchService.search(
         query: text,
         config: providerConfig,
-        onProgress: (progress) {
-          final phaseIdx = DeepSearchPhase.values.indexOf(progress.phase);
-          if (phaseIdx >= 0 && phaseIdx < phases.length && phaseIdx != phaseIndex) {
-            phaseIndex = phaseIdx;
-          }
-        },
+        onProgress: (progress) {},
         isCancelled: () => _activeRunId != myRunId,
       )) {
         if (_activeRunId != myRunId) break;
-        fullContent = result.detailedReport;
+        fullBuf.clear();
+        fullBuf.write(result.detailedReport);
         final now = DateTime.now();
         if (now.difference(lastDbWrite).inMilliseconds > 2000) {
           lastDbWrite = now;
-          await _messageDao.updateContent(assistantMsg.id, fullContent);
+          await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
         }
-        if (now.difference(_lastUiUpdate).inMilliseconds > 200) {
+        if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
           _lastUiUpdate = now;
           try {
-            final updated = state.messages.map((m) {
-              return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
-            }).toList();
-            state = ChatState(messages: updated, isStreaming: true);
+            final content = fullBuf.toString();
+            state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: true);
           } catch (_) {}
         }
       }
 
       if (_activeRunId != myRunId) return;
-      await _messageDao.updateContent(assistantMsg.id, fullContent);
+      await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
       try {
-        final updated = state.messages.map((m) {
-          return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
-        }).toList();
-        state = ChatState(messages: updated, isStreaming: false);
+        final content = fullBuf.toString();
+        state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: false);
       } catch (_) {}
     } catch (e) {
-      fullContent = '深度搜索失败: $e';
-      await _messageDao.updateContent(assistantMsg.id, fullContent);
+      final errContent = '深度搜索失败: $e';
+      await _messageDao.updateContent(conversationId, assistantMsg.id, errContent);
       try {
-        final updated = state.messages.map((m) {
-          return m.id == assistantMsg.id ? m.copyWith(content: fullContent) : m;
-        }).toList();
-        state = ChatState(messages: updated, isStreaming: false);
+        state = ChatState(messages: _updateMessageInState(assistantMsg.id, errContent), isStreaming: false);
       } catch (_) {}
     }
 
     WakelockPlus.disable();
   }
-
-  // ---------------------------------------------------------------------------
-  // Expert mode
-  // ---------------------------------------------------------------------------
 
   Future<void> sendExpertMessage({
     required ExpertPanel panel,
@@ -365,14 +339,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       return;
     }
 
-    // Cancel the previous run.  Completed / partial expert responses are
-    // KEPT in the message list so the next synthesis has full context.
     _activeRunId++;
     final myRunId = _activeRunId;
 
     if (state.isStreaming) {
-      // Don't remove any messages — just mark streaming as done.
-      // Partial content was already saved to DB chunk-by-chunk.
       state = ChatState(
         messages: state.messages,
         isStreaming: false,
@@ -381,19 +351,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
 
     WakelockPlus.enable();
+    await _autoTitle(text);
 
-    // Auto-title
-    try {
-      final conv = await _conversationDao.getById(conversationId);
-      if (conv != null && conv.title == 'New Chat') {
-        final title = text.trim().length > 30
-            ? '${text.trim().substring(0, 30)}...'
-            : text.trim();
-        await _conversationDao.updateTitle(conversationId, title);
-      }
-    } catch (_) {}
-
-    // Insert user message
     final userMsg = Message(
       conversationId: conversationId,
       role: 'user',
@@ -405,7 +364,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
     await _messageDao.insert(userMsg);
     var allMessages = [...state.messages, userMsg];
 
-    // Insert placeholder messages for each expert
     final expertPlaceholders = <String, Message>{};
     for (final config in expertConfigs) {
       final placeholder = Message(
@@ -423,7 +381,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
       allMessages.add(placeholder);
     }
 
-    // Build initial expert statuses
     final statuses = <String, ExpertStatus>{};
     for (final config in expertConfigs) {
       statuses[config.id] = ExpertStatus(
@@ -440,12 +397,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       expertStatuses: statuses,
     );
 
-    // Build history — keep only the most recent messages as context.
     final history = _trimHistory(state.messages
-        .where((m) => !expertPlaceholders.containsKey(m.id) || m.role == 'user')
+        .where((m) => m.id != userMsg.id && !expertPlaceholders.containsKey(m.id))
         .toList());
 
-    // Query all experts in parallel
     final expertResults = await ExpertModeService.queryAllExperts(
       expertConfigs: expertConfigs,
       history: history,
@@ -462,7 +417,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
     if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
 
-    // Update placeholder messages with expert responses
     allMessages = state.messages.toList();
     for (final entry in expertResults.entries) {
       final placeholder = expertPlaceholders[entry.key];
@@ -470,7 +424,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       final idx = allMessages.indexWhere((m) => m.id == placeholder.id);
       if (idx >= 0) {
         allMessages[idx] = placeholder.copyWith(content: entry.value);
-        await _messageDao.updateContent(placeholder.id, entry.value);
+        await _messageDao.updateContent(conversationId, placeholder.id, entry.value);
       }
     }
 
@@ -482,7 +436,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
       expertStatuses: state.expertStatuses,
     );
 
-    // Check if all experts failed
     final hasSuccess = expertResults.values.any(
         (v) => !v.startsWith('错误:') && !v.startsWith('未知错误:'));
     if (!hasSuccess) {
@@ -497,7 +450,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
       return;
     }
 
-    // Build synthesis prompt
     final configMap = <String, AIProviderConfig>{};
     for (final c in expertConfigs) {
       configMap[c.id] = c;
@@ -510,7 +462,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
       customPrompt: panel.synthesisPrompt.isNotEmpty ? panel.synthesisPrompt : null,
     );
 
-    // Insert gateway placeholder
     final gatewayPlaceholder = Message(
       conversationId: conversationId,
       role: 'assistant',
@@ -527,14 +478,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
       expertStatuses: state.expertStatuses,
     );
 
-    // Build gateway history — keep only the most recent messages as context.
     final gatewayHistory = _trimHistory(state.messages
         .where((m) => m.id != gatewayPlaceholder.id &&
             (m.metadata == null ||
                 m.metadata!['type'] != 'expert_response'))
         .toList());
 
-    // Add a system message for the gateway
     final systemMsg = Message(
       conversationId: conversationId,
       role: 'system',
@@ -547,7 +496,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final gatewayService = AiService(gatewayConfig);
 
     try {
-      String fullContent = '';
+      final fullBuf = StringBuffer();
       DateTime lastDbWrite = DateTime.now();
       await for (final chunk in gatewayService.streamChat(
         history: gatewayHistory,
@@ -555,31 +504,25 @@ class ChatNotifier extends StateNotifier<ChatState> {
         isCancelled: () => _activeRunId != myRunId,
       )) {
         if (_activeRunId != myRunId) {
-          await _messageDao.updateContent(gatewayPlaceholder.id, fullContent);
+          await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, fullBuf.toString());
           WakelockPlus.disable();
           return;
         }
-        fullContent += chunk;
+        fullBuf.write(chunk);
 
-        // DB write: max every 2 seconds
         final now = DateTime.now();
         if (now.difference(lastDbWrite).inMilliseconds > 2000) {
           lastDbWrite = now;
-          await _messageDao.updateContent(gatewayPlaceholder.id, fullContent);
+          await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, fullBuf.toString());
         }
 
-        // UI update: max every 200ms
-        if (now.difference(_lastUiUpdate).inMilliseconds > 200) {
+        if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
           _lastUiUpdate = now;
           try {
-            final updated = state.messages.map((m) {
-              return m.id == gatewayPlaceholder.id
-                  ? m.copyWith(content: fullContent)
-                  : m;
-            }).toList();
+            final content = fullBuf.toString();
             if (_activeRunId != myRunId) return;
             state = ChatState(
-              messages: updated,
+              messages: _updateMessageInState(gatewayPlaceholder.id, content),
               isStreaming: true,
               expertPhase: ExpertPhase.synthesizing,
               expertStatuses: state.expertStatuses,
@@ -590,28 +533,19 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
       if (_activeRunId != myRunId) return;
       try {
-        final finalMessages = state.messages.map((m) {
-          return m.id == gatewayPlaceholder.id
-              ? m.copyWith(content: fullContent)
-              : m;
-        }).toList();
+        final content = fullBuf.toString();
         state = ChatState(
-          messages: finalMessages,
+          messages: _updateMessageInState(gatewayPlaceholder.id, content),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
         );
       } catch (_) {}
     } on AiException catch (e) {
       if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(gatewayPlaceholder.id, '综合失败: ${e.message}');
+      await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, '综合失败: ${e.message}');
       try {
-        final updated = state.messages.map((m) {
-          return m.id == gatewayPlaceholder.id
-              ? m.copyWith(content: '综合失败: ${e.message}')
-              : m;
-        }).toList();
         state = ChatState(
-          messages: updated,
+          messages: _updateMessageInState(gatewayPlaceholder.id, '综合失败: ${e.message}'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
           errorMessage: '网关综合失败: ${e.message}',
@@ -619,15 +553,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       } catch (_) {}
     } catch (e) {
       if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(gatewayPlaceholder.id, '综合失败: $e');
+      await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, '综合失败: $e');
       try {
-        final updated = state.messages.map((m) {
-          return m.id == gatewayPlaceholder.id
-              ? m.copyWith(content: '综合失败: $e')
-              : m;
-        }).toList();
         state = ChatState(
-          messages: updated,
+          messages: _updateMessageInState(gatewayPlaceholder.id, '综合失败: $e'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
           errorMessage: '网关综合失败: $e',
@@ -635,14 +564,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       } catch (_) {}
     }
 
-    try {
-      final conv = await _conversationDao.getById(conversationId);
-      if (conv != null) {
-        conv.updatedAt = DateTime.now();
-        await _conversationDao.update(conv);
-      }
-    } catch (_) {}
-
+    await _updateConversationTime();
     WakelockPlus.disable();
   }
 
@@ -677,5 +599,67 @@ class ChatNotifier extends StateNotifier<ChatState> {
       return m;
     }).toList();
     state = ChatState(messages: updated);
+  }
+
+  Future<void> regenerateLastResponse({
+    required AIProviderConfig providerConfig,
+    String? overrideModel,
+    String? reasoningEffort,
+  }) async {
+    final msgs = state.messages;
+    if (msgs.isEmpty || state.isStreaming) return;
+
+    String? lastUserText;
+    List<String>? lastUserImages;
+    int lastUserIdx = -1;
+    for (int i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role == 'user') {
+        lastUserText = msgs[i].content;
+        lastUserImages = msgs[i].imagePaths;
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserText == null && lastUserImages == null) return;
+
+    final toDelete = msgs.sublist(lastUserIdx + 1);
+    for (final m in toDelete) {
+      await _messageDao.deleteById(conversationId, m.id);
+    }
+    state = ChatState(messages: msgs.sublist(0, lastUserIdx + 1));
+
+    await sendMessage(
+      providerConfig: providerConfig,
+      text: lastUserText ?? '',
+      imagePaths: lastUserImages,
+      overrideModel: overrideModel,
+      reasoningEffort: reasoningEffort,
+    );
+  }
+
+  Future<void> editAndResend({
+    required AIProviderConfig providerConfig,
+    required String messageId,
+    required String newText,
+    String? overrideModel,
+    String? reasoningEffort,
+  }) async {
+    if (state.isStreaming) return;
+    final msgs = state.messages;
+    final idx = msgs.indexWhere((m) => m.id == messageId);
+    if (idx < 0) return;
+
+    final toDelete = msgs.sublist(idx);
+    for (final m in toDelete) {
+      await _messageDao.deleteById(conversationId, m.id);
+    }
+    state = ChatState(messages: msgs.sublist(0, idx));
+
+    await sendMessage(
+      providerConfig: providerConfig,
+      text: newText,
+      overrideModel: overrideModel,
+      reasoningEffort: reasoningEffort,
+    );
   }
 }

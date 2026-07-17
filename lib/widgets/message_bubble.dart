@@ -1,10 +1,57 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/message.dart';
 import 'math_markdown.dart';
 import 'streaming_cursor.dart';
+import 'assistant_avatar.dart';
+
+class _MessageEntrance extends StatefulWidget {
+  final Widget child;
+  final bool isUser;
+
+  const _MessageEntrance({required this.child, required this.isUser});
+
+  @override
+  State<_MessageEntrance> createState() => _MessageEntranceState();
+}
+
+class _MessageEntranceState extends State<_MessageEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: Offset(widget.isUser ? 0.15 : -0.15, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SlideTransition(
+      position: _slide,
+      child: FadeTransition(opacity: _fade, child: widget.child),
+    );
+  }
+}
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -15,8 +62,18 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onToggleFavorite;
   final void Function(String messageId)? onScrollToMessage;
+  final VoidCallback? onExportWord;
+  final VoidCallback? onExportMarkdown;
+  final VoidCallback? onExportTxt;
+  final VoidCallback? onRegenerate;
+  final void Function(String messageId, String currentContent)? onEdit;
+  final bool isSelected;
+  final bool multiSelectMode;
+  final VoidCallback? onToggleSelect;
   final IconData? assistantIcon;
   final Color? assistantColor;
+  final String? assistantName;
+  final AssistantState assistantState;
 
   const MessageBubble({
     super.key,
@@ -28,8 +85,18 @@ class MessageBubble extends StatelessWidget {
     this.onDelete,
     this.onToggleFavorite,
     this.onScrollToMessage,
+    this.onExportWord,
+    this.onExportMarkdown,
+    this.onExportTxt,
+    this.onRegenerate,
+    this.onEdit,
+    this.isSelected = false,
+    this.multiSelectMode = false,
+    this.onToggleSelect,
     this.assistantIcon,
     this.assistantColor,
+    this.assistantName,
+    this.assistantState = AssistantState.idle,
   });
 
   bool get _isExpertResponse =>
@@ -90,12 +157,54 @@ class MessageBubble extends StatelessWidget {
                 onToggleFavorite?.call();
               },
             ),
+            if (message.role == 'assistant' && message.content.isNotEmpty && !message.content.startsWith('错误:'))
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('重新生成'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onRegenerate?.call();
+                },
+              ),
+            if (message.role == 'user')
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: const Text('编辑重发'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onEdit?.call(message.id, message.content);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.delete_outline, color: Colors.red),
               title: const Text('删除', style: TextStyle(color: Colors.red)),
               onTap: () {
                 Navigator.pop(ctx);
                 _confirmDelete(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.description),
+              title: const Text('导出为 Word'),
+              onTap: () {
+                Navigator.pop(ctx);
+                onExportWord?.call();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.code),
+              title: const Text('导出为 Markdown'),
+              onTap: () {
+                Navigator.pop(ctx);
+                onExportMarkdown?.call();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.text_snippet),
+              title: const Text('导出为 TXT'),
+              onTap: () {
+                Navigator.pop(ctx);
+                onExportTxt?.call();
               },
             ),
           ],
@@ -148,218 +257,260 @@ class MessageBubble extends StatelessWidget {
       return _buildExpertResponse(context, theme);
     }
 
-    return RepaintBoundary(
-      child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!isUser)
-            CircleAvatar(
-              radius: 14,
-              backgroundColor:
-                  assistantColor ?? theme.colorScheme.primaryContainer,
-              child: Icon(
-                  assistantIcon ?? Icons.smart_toy,
-                  size: 18,
-                  color: assistantColor != null
-                      ? Colors.white
-                      : theme.colorScheme.onPrimaryContainer),
+    return _MessageEntrance(
+      isUser: isUser,
+      child: RepaintBoundary(
+        child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: isUser ? _buildUserRow(context, theme, isMatch) : _buildAssistantColumn(context, theme, isMatch),
+      ),
+      ),
+    );
+  }
+
+  Widget _buildUserRow(BuildContext context, ThemeData theme, bool isMatch) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (multiSelectMode)
+          GestureDetector(
+            onTap: onToggleSelect,
+            child: Container(
+              width: 24, height: 24, margin: const EdgeInsets.only(right: 6),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+                border: Border.all(color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outline, width: 2),
+              ),
+              child: isSelected ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
             ),
-          if (!isUser) const SizedBox(width: 8),
-          Flexible(
-            child: GestureDetector(
-              onLongPress: () => _showContextMenu(context),
-              child: Container(
-                constraints:
-                    BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: isCurrentSearchMatch
-                      ? LinearGradient(colors: [Colors.amber.withValues(alpha: 0.4), Colors.amber.withValues(alpha: 0.2)])
-                      : isMatch
-                          ? LinearGradient(colors: [Colors.amber.withValues(alpha: 0.15), Colors.amber.withValues(alpha: 0.08)])
-                          : isUser
-                              ? LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    theme.colorScheme.primaryContainer,
-                                    theme.colorScheme.primaryContainer.withValues(alpha: 0.7),
-                                  ],
-                                )
-                              : null,
-                  color: (!isUser && !isMatch && !isCurrentSearchMatch)
-                      ? const Color(0xFFF0F4F8)
-                      : null,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isUser ? 0.06 : 0.04),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+          ),
+        Flexible(
+          child: _buildBubble(context, theme, isMatch, isUser: true),
+        ),
+        const SizedBox(width: 8),
+        CircleAvatar(
+          radius: 17,
+          backgroundColor: theme.colorScheme.primary,
+          child: const Icon(Icons.person, size: 20, color: Colors.white),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAssistantColumn(BuildContext context, ThemeData theme, bool isMatch) {
+    final state = isStreaming ? AssistantState.streaming : assistantState;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 3),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AssistantAvatar(
+                icon: assistantIcon ?? Icons.smart_toy,
+                color: assistantColor ?? const Color(0xFF6366F1),
+                size: 24,
+                state: state,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                assistantName ?? 'AI',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: assistantColor ?? theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+              if (multiSelectMode) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: onToggleSelect,
+                  child: Container(
+                    width: 22, height: 22,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+                      border: Border.all(color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outline, width: 2),
                     ),
-                  ],
-                  border: isCurrentSearchMatch
-                      ? Border.all(color: Colors.amber, width: 2)
-                      : null,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(18),
-                    topRight: const Radius.circular(18),
-                    bottomLeft: isUser
-                        ? const Radius.circular(18)
-                        : const Radius.circular(4),
-                    bottomRight: isUser
-                        ? const Radius.circular(4)
-                        : const Radius.circular(18),
+                    child: isSelected ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Reply quote bar
-                    if (message.metadata != null && message.metadata!['replyToId'] != null)
-                      GestureDetector(
-                        onTap: () {
-                          final targetId = message.metadata!['replyToId'] as String;
-                          onScrollToMessage?.call(targetId);
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.reply, size: 14, color: theme.colorScheme.outline),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  (message.metadata!['replyPreview'] as String? ?? '').length > 40
-                                      ? '${(message.metadata!['replyPreview'] as String).substring(0, 40)}...'
-                                      : (message.metadata!['replyPreview'] as String? ?? ''),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.outline,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    if (message.hasImages) ...[
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: message.imagePaths!.map((path) {
-                          return GestureDetector(
-                            onTap: () => _openImageViewer(context, path),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(
-                                File(path),
-                                width: 120,
-                                height: 120,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      if (message.content.isNotEmpty) const SizedBox(height: 8),
-                    ],
-                    if (message.hasFile) ...[
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surface,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.insert_drive_file,
-                                size: 20, color: theme.colorScheme.primary),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                message.fileName ?? '文件',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall
-                                    ?.copyWith(color: theme.colorScheme.primary),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (message.content.isNotEmpty) const SizedBox(height: 8),
-                    ],
-                    if (isUser)
-                      Text(message.content,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onPrimaryContainer))
-                    else if (isStreaming && message.content.isEmpty)
-                      _TypingIndicator(theme: theme)
-                    else if (isStreaming)
-                      _StreamingContent(
-                        content: message.content,
-                        theme: theme,
-                      )
-                    else
-                      RepaintBoundary(
-                        child: MathMarkdown(
-                          data: message.content,
-                          selectable: true,
-                          styleSheet: MarkdownStyleSheet(
-                            p: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurface),
-                            code: theme.textTheme.bodySmall?.copyWith(
-                              backgroundColor: theme.colorScheme.surface,
-                              fontFamily: 'monospace',
-                            ),
-                            codeblockDecoration: BoxDecoration(
-                              color: theme.colorScheme.surface,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (isStreaming && message.content.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      _BlinkingCursor(theme: theme),
-                    ],
-                    if (message.isFavorite) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.star, size: 13, color: Colors.amber.shade600),
+              ],
+            ],
+          ),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(width: 4),
+            Flexible(
+              child: GestureDetector(
+                onLongPress: multiSelectMode ? onToggleSelect : () => _showContextMenu(context),
+                child: _buildBubble(context, theme, isMatch, isUser: false),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBubble(BuildContext context, ThemeData theme, bool isMatch, {required bool isUser}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: isCurrentSearchMatch
+            ? LinearGradient(colors: [Colors.amber.withValues(alpha: 0.4), Colors.amber.withValues(alpha: 0.2)])
+            : isMatch
+                ? LinearGradient(colors: [Colors.amber.withValues(alpha: 0.15), Colors.amber.withValues(alpha: 0.08)])
+                : isUser
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          theme.colorScheme.primaryContainer,
+                          theme.colorScheme.primaryContainer.withValues(alpha: 0.7),
                         ],
+                      )
+                    : null,
+        color: (!isUser && !isMatch && !isCurrentSearchMatch)
+            ? const Color(0xFFE8EDF2)
+            : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isUser ? 0.06 : 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: isCurrentSearchMatch
+            ? Border.all(color: Colors.amber, width: 2)
+            : null,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: isUser
+              ? const Radius.circular(18)
+              : const Radius.circular(4),
+          bottomRight: isUser
+              ? const Radius.circular(4)
+              : const Radius.circular(18),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (message.metadata != null && message.metadata!['replyToId'] != null)
+            GestureDetector(
+              onTap: () {
+                final targetId = message.metadata!['replyToId'] as String;
+                onScrollToMessage?.call(targetId);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.reply, size: 14, color: theme.colorScheme.outline),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        (message.metadata!['replyPreview'] as String? ?? '').length > 40
+                            ? '${(message.metadata!['replyPreview'] as String).substring(0, 40)}...'
+                            : (message.metadata!['replyPreview'] as String? ?? ''),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
             ),
-          ),
-          if (isUser) const SizedBox(width: 8),
-          if (isUser)
-            CircleAvatar(
-              radius: 14,
-              backgroundColor: theme.colorScheme.primary,
-              child: const Icon(Icons.person, size: 18, color: Colors.white),
+          if (message.hasImages) ...[
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: message.imagePaths!.map((path) {
+                return GestureDetector(
+                  onTap: () => _openImageViewer(context, path),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      File(path),
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
+            if (message.content.isNotEmpty) const SizedBox(height: 8),
+          ],
+          if (message.hasFile) ...[
+            _FileAttachmentBubble(
+              fileName: message.fileName ?? '文件',
+              theme: theme,
+            ),
+            if (message.content.isNotEmpty) const SizedBox(height: 8),
+          ],
+          if (isUser)
+            Text(message.content,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onPrimaryContainer))
+          else if (isStreaming && message.content.isEmpty)
+            _TypingIndicator(theme: theme)
+          else if (isStreaming)
+            _StreamingContent(
+              content: message.content,
+              theme: theme,
+            )
+          else
+            RepaintBoundary(
+              child: MathMarkdown(
+                data: message.content,
+                selectable: true,
+                styleSheet: MarkdownStyleSheet(
+                  p: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface),
+                  code: theme.textTheme.bodySmall?.copyWith(
+                    backgroundColor: theme.colorScheme.surface,
+                    fontFamily: 'monospace',
+                  ),
+                  codeblockDecoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          if (isStreaming && message.content.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            _BlinkingCursor(theme: theme),
+          ],
+          if (message.isFavorite) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star, size: 13, color: Colors.amber.shade600),
+              ],
+            ),
+          ],
         ],
       ),
-    ),
     );
   }
 
@@ -612,7 +763,7 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1400),
     )..repeat();
   }
 
@@ -627,22 +778,27 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
-        final delay = i * 0.2;
         return ListenableBuilder(
           listenable: _controller,
-          builder: (_, child) {
-            final t = (_controller.value - delay) % 1.0;
-            final v = t < 0 ? 0.0 : (t < 0.5 ? t / 0.5 : (1.0 - t) / 0.5);
-            final scale = 0.4 + 0.6 * v.clamp(0.0, 1.0);
-            return Transform.scale(
-              scale: scale,
-              child: Container(
-                width: 8,
-                height: 8,
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  color: widget.theme.colorScheme.primary.withValues(alpha: 0.6),
-                  shape: BoxShape.circle,
+          builder: (_, __) {
+            final phase = (_controller.value * 3.0 - i * 0.8) % 3.0;
+            final t = phase < 0 ? 0.0 : (phase > 1.0 ? (phase < 2.0 ? 1.0 - (phase - 1.0) : 0.0) : phase);
+            final smooth = t * t * (3.0 - 2.0 * t);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.5),
+              child: Transform.translate(
+                offset: Offset(0, -6.0 * smooth),
+                child: Transform.scale(
+                  scale: 0.8 + 0.2 * smooth,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: widget.theme.colorScheme.primary
+                          .withValues(alpha: 0.35 + 0.65 * smooth),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ),
               ),
             );
@@ -664,14 +820,17 @@ class _BlinkingCursor extends StatefulWidget {
 class _BlinkingCursorState extends State<_BlinkingCursor>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final Animation<double> _opacity;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
+    _opacity = Tween<double>(begin: 1.0, end: 0.1)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -683,14 +842,114 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
-      opacity: _controller,
+      opacity: _opacity,
       child: Container(
-        width: 8,
-        height: 16,
+        width: 2.5,
+        height: 17,
         decoration: BoxDecoration(
           color: widget.theme.colorScheme.primary,
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.circular(1.5),
         ),
+      ),
+    );
+  }
+}
+
+class _FileAttachmentBubble extends StatelessWidget {
+  final String fileName;
+  final ThemeData theme;
+
+  const _FileAttachmentBubble({required this.fileName, required this.theme});
+
+  IconData _iconForName(String name) {
+    final ext = name.split('.').last.toLowerCase();
+    return switch (ext) {
+      'pdf' => Icons.picture_as_pdf,
+      'doc' || 'docx' => Icons.description,
+      'xls' || 'xlsx' || 'csv' => Icons.table_chart,
+      'ppt' || 'pptx' => Icons.slideshow,
+      'zip' || 'rar' || '7z' || 'tar' || 'gz' => Icons.folder_zip,
+      'mp3' || 'wav' || 'flac' || 'aac' || 'ogg' => Icons.audio_file,
+      'mp4' || 'avi' || 'mkv' || 'mov' || 'wmv' => Icons.video_file,
+      'txt' || 'md' || 'log' => Icons.article,
+      'py' || 'js' || 'ts' || 'dart' || 'java' || 'c' || 'cpp' || 'h' => Icons.code,
+      'json' || 'xml' || 'yaml' || 'yml' || 'toml' => Icons.data_object,
+      'html' || 'css' || 'htm' => Icons.language,
+      'jpg' || 'jpeg' || 'png' || 'gif' || 'bmp' || 'webp' || 'svg' => Icons.image,
+      _ => Icons.insert_drive_file,
+    };
+  }
+
+  Color _colorForExt(String name) {
+    final ext = name.split('.').last.toLowerCase();
+    return switch (ext) {
+      'pdf' => Colors.red,
+      'doc' || 'docx' => Colors.blue,
+      'xls' || 'xlsx' || 'csv' => Colors.green,
+      'ppt' || 'pptx' => Colors.orange,
+      'zip' || 'rar' || '7z' => Colors.brown,
+      'mp3' || 'wav' || 'flac' => Colors.purple,
+      'mp4' || 'avi' || 'mkv' => Colors.deepPurple,
+      'py' || 'js' || 'ts' || 'dart' => Colors.teal,
+      'jpg' || 'jpeg' || 'png' || 'gif' => Colors.pink,
+      _ => theme.colorScheme.primary,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ext = fileName.split('.').last.toLowerCase();
+    final icon = _iconForName(fileName);
+    final color = _colorForExt(fileName);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: color.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  ext.toUpperCase(),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

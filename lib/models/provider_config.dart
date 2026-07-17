@@ -11,6 +11,8 @@ class AIProviderConfig {
   final bool supportsVision;
   final bool supportsFile;
   final String? audioEndpoint;
+  final String? customChatEndpoint;
+  final Map<String, String> customHeaders;
   final List<String> availableModels;
 
   AIProviderConfig({
@@ -22,12 +24,35 @@ class AIProviderConfig {
     this.supportsVision = false,
     this.supportsFile = false,
     this.audioEndpoint,
+    this.customChatEndpoint,
+    this.customHeaders = const {},
     this.availableModels = const [],
   }) : id = id ?? _uuid.v4();
 
-  String get chatEndpoint => '$baseUrl/chat/completions';
+  String get chatEndpoint {
+    if (customChatEndpoint != null && customChatEndpoint!.trim().isNotEmpty) {
+      return customChatEndpoint!.trim();
+    }
+    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    return '$base/chat/completions';
+  }
+
   String get transcriptionEndpoint =>
       audioEndpoint ?? '$baseUrl/audio/transcriptions';
+
+  String get modelsEndpoint {
+    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    return '$base/models';
+  }
+
+  Map<String, String> get allHeaders {
+    final headers = <String, String>{
+      'Authorization': 'Bearer $apiKey',
+      'Content-Type': 'application/json',
+    };
+    headers.addAll(customHeaders);
+    return headers;
+  }
 
   AIProviderConfig copyWith({
     String? name,
@@ -37,6 +62,8 @@ class AIProviderConfig {
     bool? supportsVision,
     bool? supportsFile,
     String? audioEndpoint,
+    String? customChatEndpoint,
+    Map<String, String>? customHeaders,
     List<String>? availableModels,
   }) {
     return AIProviderConfig(
@@ -48,6 +75,8 @@ class AIProviderConfig {
       supportsVision: supportsVision ?? this.supportsVision,
       supportsFile: supportsFile ?? this.supportsFile,
       audioEndpoint: audioEndpoint ?? this.audioEndpoint,
+      customChatEndpoint: customChatEndpoint ?? this.customChatEndpoint,
+      customHeaders: customHeaders ?? this.customHeaders,
       availableModels: availableModels ?? this.availableModels,
     );
   }
@@ -61,6 +90,8 @@ class AIProviderConfig {
         'supportsVision': supportsVision,
         'supportsFile': supportsFile,
         'audioEndpoint': audioEndpoint,
+        'customChatEndpoint': customChatEndpoint,
+        'customHeaders': customHeaders,
         'availableModels': availableModels,
       };
 
@@ -74,6 +105,10 @@ class AIProviderConfig {
       supportsVision: json['supportsVision'] as bool? ?? false,
       supportsFile: json['supportsFile'] as bool? ?? false,
       audioEndpoint: json['audioEndpoint'] as String?,
+      customChatEndpoint: json['customChatEndpoint'] as String?,
+      customHeaders: (json['customHeaders'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, v.toString())) ??
+          {},
       availableModels: (json['availableModels'] as List?)?.cast<String>() ?? [],
     );
   }

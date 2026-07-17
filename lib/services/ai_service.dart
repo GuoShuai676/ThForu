@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../models/provider_config.dart';
@@ -18,16 +18,15 @@ class AiService {
     required List<Message> history,
     required String newUserMessage,
     List<String>? imagePaths,
+    String? overrideModel,
+    String? reasoningEffort,
     bool Function()? isCancelled,
   }) async* {
     final messages = <Map<String, dynamic>>[];
 
-    // Strip images from history if current request has no images —
-    // some models reject ANY image content in the conversation.
     final hasCurrentImages = imagePaths != null && imagePaths.isNotEmpty;
     for (final msg in history) {
       if (!hasCurrentImages && msg.hasImages) {
-        // Send text-only version of this history message
         messages.add({
           'role': msg.role,
           'content': msg.content.isEmpty ? '[图片]' : msg.content,
@@ -45,32 +44,34 @@ class AiService {
     );
     messages.add(userMsg.toOpenAIMessage());
 
-    final body = {
-      'model': config.modelName,
+    final model = overrideModel ?? config.modelName;
+    final body = <String, dynamic>{
+      'model': model,
       'messages': messages,
       'stream': true,
     };
+
+    if (reasoningEffort != null && reasoningEffort.isNotEmpty) {
+      body['reasoning_effort'] = reasoningEffort;
+    }
 
     try {
       final response = await _dio.post(
         config.chatEndpoint,
         data: body,
         options: Options(
-          headers: {
-            'Authorization': 'Bearer ${config.apiKey}',
-            'Content-Type': 'application/json',
-          },
+          headers: config.allHeaders,
           responseType: ResponseType.stream,
           validateStatus: (s) => s! < 500,
         ),
       );
 
       if (response.statusCode == 404) {
-        final bytes = <int>[];
-        await for (final chunk in response.data.stream) {
-          bytes.addAll(chunk);
-        }
-        throw AiException('404: ${utf8.decode(bytes)}');
+        try {
+          await response.data.stream.drain<void>();
+        } catch (_) {}
+        yield* _nonStreamingChat(history, newUserMessage, imagePaths, overrideModel, reasoningEffort, isCancelled);
+        return;
       }
       if (response.statusCode != 200) {
         throw AiException('HTTP ${response.statusCode}');
@@ -94,13 +95,12 @@ class AiService {
       }
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
-        // Retry without stream — some providers don't support SSE
-        yield* _nonStreamingChat(history, newUserMessage, imagePaths, isCancelled);
+        yield* _nonStreamingChat(history, newUserMessage, imagePaths, overrideModel, reasoningEffort, isCancelled);
         return;
       }
       final msg = switch (e.type) {
         DioExceptionType.connectionTimeout => '连接超时，请检查网络后重试',
-        DioExceptionType.receiveTimeout => '响应超时（120s），请重试',
+        DioExceptionType.receiveTimeout => '响应超时（5min），请重试',
         DioExceptionType.connectionError => '网络连接失败，请检查网络后重试',
         DioExceptionType.cancel => '请求已取消',
         _ => switch (e.response?.statusCode) {
@@ -117,6 +117,8 @@ class AiService {
     List<Message> history,
     String newUserMessage,
     List<String>? imagePaths,
+    String? overrideModel,
+    String? reasoningEffort,
     bool Function()? isCancelled,
   ) async* {
     final hasCur = imagePaths != null && imagePaths.isNotEmpty;
@@ -134,16 +136,101 @@ class AiService {
     );
     messages.add(userMsg.toOpenAIMessage());
 
-    final resp = await _dio.post(
-      config.chatEndpoint,
-      data: {'model': config.modelName, 'messages': messages, 'stream': false},
-      options: Options(headers: {
-        'Authorization': 'Bearer ${config.apiKey}',
-        'Content-Type': 'application/json',
-      }),
-    );
-    final content = resp.data['choices']?[0]?['message']?['content'] as String?;
-    if (content != null) yield content;
+    final model = overrideModel ?? config.modelName;
+    final body = <String, dynamic>{
+      'model': model,
+      'messages': messages,
+      'stream': false,
+    };
+    if (reasoningEffort != null && reasoningEffort.isNotEmpty) {
+      body['reasoning_effort'] = reasoningEffort;
+    }
+
+    try {
+      final resp = await _dio.post(
+        config.chatEndpoint,
+        data: body,
+        options: Options(headers: config.allHeaders),
+      );
+      final content = resp.data['choices']?[0]?['message']?['content'] as String?;
+      if (content != null) yield content;
+    } on DioException catch (e) {
+      final msg = switch (e.type) {
+        DioExceptionType.connectionTimeout => '连接超时，请检查网络后重试',
+        DioExceptionType.receiveTimeout => '响应超时，请重试',
+        DioExceptionType.connectionError => '网络连接失败，请检查网络后重试',
+        DioExceptionType.cancel => '请求已取消',
+        _ => switch (e.response?.statusCode) {
+            401 => 'API Key 无效',
+            429 => '请求太频繁，请稍后再试',
+            404 => '接口地址不存在 (404)，请检查 BaseURL / Endpoint 配置',
+            _ => '请求失败(${e.response?.statusCode})',
+          },
+      };
+      throw AiException(msg);
+    }
+  }
+
+  Future<List<String>> fetchModels() async {
+    try {
+      final resp = await _dio.get(
+        config.modelsEndpoint,
+        options: Options(headers: config.allHeaders),
+      );
+      final data = resp.data;
+      if (data is Map<String, dynamic> && data['data'] is List) {
+        final models = (data['data'] as List)
+            .whereType<Map<String, dynamic>>()
+            .map((m) => m['id'] as String?)
+            .where((id) => id != null && id.isNotEmpty)
+            .cast<String>()
+            .toList();
+        return models;
+      }
+      return [];
+    } on DioException catch (e) {
+      throw AiException('获取模型列表失败: ${e.message}');
+    } catch (e) {
+      throw AiException('获取模型列表失败: $e');
+    }
+  }
+
+  Future<String> testConnection() async {
+    try {
+      final resp = await _dio.post(
+        config.chatEndpoint,
+        data: {
+          'model': config.modelName,
+          'messages': [
+            {'role': 'user', 'content': 'hi'}
+          ],
+          'max_tokens': 5,
+          'stream': false,
+        },
+        options: Options(
+          headers: config.allHeaders,
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
+      if (resp.statusCode != null && resp.statusCode! < 300) {
+        return '连接成功';
+      }
+      return '连接失败: HTTP ${resp.statusCode}';
+    } on DioException catch (e) {
+      return switch (e.type) {
+        DioExceptionType.connectionTimeout => '连接超时',
+        DioExceptionType.connectionError => '无法连接到服务器',
+        _ => switch (e.response?.statusCode) {
+            401 => '认证失败：API Key 无效',
+            403 => '访问被拒绝',
+            404 => '接口不存在 (404)，请检查 URL 配置',
+            429 => '请求过于频繁',
+            _ => '连接失败: ${e.message}',
+          },
+      };
+    } catch (e) {
+      return '连接失败: $e';
+    }
   }
 
   Future<String> transcribeAudio(String filePath) async {

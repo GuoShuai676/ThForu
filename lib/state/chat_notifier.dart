@@ -282,15 +282,22 @@ class ChatNotifier extends StateNotifier<ChatState> {
         if (msg.role == 'system' ||
             msg.role == 'user' ||
             msg.role == 'assistant') {
-          openAiMessages.add(msg.toOpenAIMessage());
+          openAiMessages.add(msg.toOpenAIMessage(allowImageUrl: false));
         }
       }
-      openAiMessages.add(Message(
-              conversationId: '',
-              role: 'user',
-              content: text,
-              imagePaths: imagePaths)
-          .toOpenAIMessage());
+      // Current user message — text-only for tool-calling compatibility
+      if (imagePaths != null && imagePaths.isNotEmpty) {
+        openAiMessages.add({
+          'role': 'user',
+          'content': '[用户发送了 ${imagePaths.length} 张图片，并说:] $text',
+        });
+      } else {
+        openAiMessages.add(Message(
+                conversationId: '',
+                role: 'user',
+                content: text)
+            .toOpenAIMessage(allowImageUrl: false));
+      }
 
       for (int round = 0; round < 5; round++) {
         if (_activeRunId != myRunId) {

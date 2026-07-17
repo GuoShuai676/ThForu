@@ -75,6 +75,7 @@ class AiService {
     final messages = <Map<String, dynamic>>[];
 
     final hasCurrentImages = imagePaths != null && imagePaths.isNotEmpty;
+    final canSendImageUrl = hasCurrentImages && config.supportsVision;
     for (final msg in history) {
       if (!hasCurrentImages && msg.hasImages) {
         messages.add({
@@ -82,7 +83,7 @@ class AiService {
           'content': msg.content.isEmpty ? '[图片]' : msg.content,
         });
       } else {
-        messages.add(msg.toOpenAIMessage());
+        messages.add(msg.toOpenAIMessage(allowImageUrl: canSendImageUrl));
       }
     }
 
@@ -92,7 +93,8 @@ class AiService {
       content: newUserMessage,
       imagePaths: imagePaths,
     );
-    messages.add(userMsg.toOpenAIMessage());
+    messages.add(userMsg.toOpenAIMessage(
+        allowImageUrl: config.supportsVision));
 
     final model = overrideModel ?? config.modelName;
     final body = <String, dynamic>{
@@ -174,6 +176,7 @@ class AiService {
     bool Function()? isCancelled,
   ) async* {
     final hasCur = imagePaths != null && imagePaths.isNotEmpty;
+    final canSendImageUrl = hasCur && config.supportsVision;
     final messages = <Map<String, dynamic>>[];
     for (final msg in history) {
       if (!hasCur && msg.hasImages) {
@@ -182,7 +185,7 @@ class AiService {
           'content': msg.content.isEmpty ? '[图片]' : msg.content
         });
       } else {
-        messages.add(msg.toOpenAIMessage());
+        messages.add(msg.toOpenAIMessage(allowImageUrl: canSendImageUrl));
       }
     }
     final userMsg = Message(
@@ -191,7 +194,8 @@ class AiService {
       content: newUserMessage,
       imagePaths: imagePaths,
     );
-    messages.add(userMsg.toOpenAIMessage());
+    messages.add(userMsg.toOpenAIMessage(
+        allowImageUrl: config.supportsVision));
 
     final model = overrideModel ?? config.modelName;
     final body = <String, dynamic>{
@@ -222,18 +226,51 @@ class AiService {
     }
   }
 
+  /// Sanitize a single message so its `content` contains only `text` parts.
+  /// `image_url` and any other unknown parts are converted to text placeholders.
+  /// This is a last-resort guard for tool-calling requests that must not send
+  /// `image_url` content parts.
+  static Map<String, dynamic> _textOnlyMessageParts(
+      Map<String, dynamic> msg) {
+    final content = msg['content'];
+    if (content is! List) return msg;
+
+    final safe = <Map<String, dynamic>>[];
+    for (final part in content) {
+      if (part is! Map<String, dynamic>) continue;
+      if (part['type'] == 'text') {
+        safe.add(part);
+      } else if (part['type'] == 'image_url') {
+        safe.add({
+          'type': 'text',
+          'text': '[图片: 当前工具调用请求不支持 image_url，已转为文本提示]',
+        });
+      } else {
+        safe.add({
+          'type': 'text',
+          'text': '[不支持的内容类型: ${part['type']}]',
+        });
+      }
+    }
+    return Map<String, dynamic>.from(msg)..['content'] = safe;
+  }
+
   Future<({String? content, List<Map<String, dynamic>>? toolCalls})>
       chatWithTools({
     required List<Map<String, dynamic>> messages,
     required List<Map<String, dynamic>> tools,
     String? overrideModel,
   }) async {
+    // Defensive sanitization — strip any image_url parts so the request
+    // never fails with "unknown variant image_url".
+    final safeMessages = messages.map(_textOnlyMessageParts).toList();
+
     final model = (overrideModel != null && overrideModel.isNotEmpty)
         ? overrideModel
         : config.modelName;
     final body = <String, dynamic>{
       'model': model,
-      'messages': messages,
+      'messages': safeMessages,
       'tools': tools,
       'tool_choice': 'auto',
     };

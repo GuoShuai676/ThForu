@@ -126,7 +126,18 @@ class Message {
     );
   }
 
-  Map<String, dynamic> toOpenAIMessage() {
+  /// Converts this message to an OpenAI-compatible message map.
+  ///
+  /// When [allowImageUrl] is false, images are replaced with a text placeholder
+  /// instead of `image_url` parts.  Set to `false` for tool-calling requests or
+  /// providers that don't support vision.
+  ///
+  /// When [allowFileText] is false, file content is replaced with a short
+  /// placeholder instead of being inlined as text.
+  Map<String, dynamic> toOpenAIMessage({
+    bool allowImageUrl = true,
+    bool allowFileText = true,
+  }) {
     if (!hasImages && !hasFile && !isToolResult && !isToolCall) {
       return {'role': role, 'content': content};
     }
@@ -153,6 +164,14 @@ class Message {
 
     for (final path in imagePaths ?? <String>[]) {
       try {
+        if (!allowImageUrl) {
+          final name = path.split(RegExp(r'[\\/]+')).last;
+          contentList.add({
+            'type': 'text',
+            'text': '[已附加图片: $name。当前请求只支持文本，图片未作为 image_url 发送。]',
+          });
+          continue;
+        }
         final bytes = File(path).readAsBytesSync();
         final base64 = base64Encode(bytes);
         final ext = path.split('.').last.toLowerCase();
@@ -173,17 +192,19 @@ class Message {
       final names = allFileNames;
       for (int i = 0; i < paths.length; i++) {
         try {
-          final bytes = File(paths[i]).readAsBytesSync();
-          final base64 = base64Encode(bytes);
           final ext = paths[i].split('.').last.toLowerCase();
           final fName = i < names.length ? names[i] : 'file.$ext';
-          contentList.add({
-            'type': 'file',
-            'file': {
-              'filename': fName,
-              'file_data': base64,
-            },
-          });
+          if (allowFileText) {
+            contentList.add({
+              'type': 'text',
+              'text': _fileAsPromptText(paths[i], fName),
+            });
+          } else {
+            contentList.add({
+              'type': 'text',
+              'text': '[已附加文件: $fName]',
+            });
+          }
         } catch (e) {
           contentList.add({'type': 'text', 'text': '[文件读取失败: $e]'});
         }
@@ -191,6 +212,57 @@ class Message {
     }
 
     return {'role': role, 'content': contentList};
+  }
+
+  static String _fileAsPromptText(String path, String fileName) {
+    final ext = path.split('.').last.toLowerCase();
+    const textExtensions = {
+      'txt',
+      'md',
+      'markdown',
+      'json',
+      'csv',
+      'tsv',
+      'xml',
+      'html',
+      'htm',
+      'yaml',
+      'yml',
+      'dart',
+      'js',
+      'ts',
+      'tsx',
+      'jsx',
+      'py',
+      'java',
+      'kt',
+      'swift',
+      'c',
+      'cpp',
+      'h',
+      'hpp',
+      'cs',
+      'go',
+      'rs',
+      'php',
+      'rb',
+      'sh',
+      'bat',
+      'ps1',
+      'sql',
+      'log',
+    };
+    if (!textExtensions.contains(ext)) {
+      return '[已附加文件: $fileName。当前聊天接口不支持直接上传 file 类型内容，请把文件内容复制为文本，或换用支持文件解析的接口。]';
+    }
+
+    final bytes = File(path).readAsBytesSync();
+    final raw = utf8.decode(bytes, allowMalformed: true);
+    const maxChars = 40000;
+    final text = raw.length > maxChars
+        ? '${raw.substring(0, maxChars)}\n\n[文件过长，已截断前 $maxChars 字符]'
+        : raw;
+    return '[文件: $fileName]\n$text';
   }
 
   Message copyWith({

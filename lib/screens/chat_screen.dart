@@ -15,6 +15,7 @@ import '../widgets/message_bubble.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/expert_progress_widget.dart';
 import '../widgets/assistant_avatar.dart';
+import '../widgets/tool_execution_widget.dart';
 import '../services/deep_search_service.dart';
 import '../services/word_generator.dart';
 
@@ -817,6 +818,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                   phase: chatState.expertPhase,
                   statuses: chatState.expertStatuses,
                 ),
+              // Tool execution indicator
+              if (chatState.toolExecutions.isNotEmpty)
+                ToolExecutionWidget(executions: chatState.toolExecutions),
               Expanded(
                 child: GestureDetector(
                   onTap: () => FocusScope.of(context).unfocus(),

@@ -85,7 +85,7 @@ class _AssistantAvatarState extends State<AssistantAvatar>
       builder: (context, child) {
         final isActive = widget.state != AssistantState.idle;
         final breathe = isActive ? (math.sin(_ctrl.value * 2 * math.pi) * 0.06 + 1.0) : 1.0;
-        final glowOpacity = isActive ? (0.2 + 0.15 * math.sin(_ctrl.value * 2 * math.pi)) : 0.0;
+        final glowOpacity = isActive ? (0.25 + 0.15 * math.sin(_ctrl.value * 2 * math.pi)) : 0.0;
         final rotate = widget.state == AssistantState.thinking
             ? math.sin(_ctrl.value * 2 * math.pi) * 0.08
             : 0.0;
@@ -103,8 +103,8 @@ class _AssistantAvatarState extends State<AssistantAvatar>
                     boxShadow: [
                       BoxShadow(
                         color: _baseColor.withValues(alpha: glowOpacity),
-                        blurRadius: 12,
-                        spreadRadius: 2,
+                        blurRadius: 14,
+                        spreadRadius: 3,
                       ),
                     ],
                   ),
@@ -123,17 +123,27 @@ class _AssistantAvatarState extends State<AssistantAvatar>
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: _baseColor.withValues(alpha: 0.3),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
+                          color: _baseColor.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
                         ),
                       ],
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        width: 1,
+                      ),
                     ),
                     child: Center(
                       child: Icon(
                         widget.icon,
-                        size: widget.size * 0.48,
+                        size: widget.size * 0.5,
                         color: Colors.white,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 2,
+                          ),
+                        ],
                       ),
                     ),
                   ),

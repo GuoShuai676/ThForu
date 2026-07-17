@@ -171,6 +171,55 @@ class AiService {
     }
   }
 
+  Future<({String? content, List<Map<String, dynamic>>? toolCalls})> chatWithTools({
+    required List<Map<String, dynamic>> messages,
+    required List<Map<String, dynamic>> tools,
+  }) async {
+    final body = <String, dynamic>{
+      'model': config.modelName,
+      'messages': messages,
+      'tools': tools,
+      'tool_choice': 'auto',
+    };
+
+    try {
+      final resp = await _dio.post(
+        config.chatEndpoint,
+        data: body,
+        options: Options(
+          headers: config.allHeaders,
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
+
+      final choice = resp.data['choices']?[0]?['message'];
+      if (choice == null) throw AiException('Empty response from API');
+
+      final content = choice['content'] as String?;
+      final toolCallsRaw = choice['tool_calls'] as List?;
+
+      List<Map<String, dynamic>>? toolCalls;
+      if (toolCallsRaw != null && toolCallsRaw.isNotEmpty) {
+        toolCalls = toolCallsRaw.cast<Map<String, dynamic>>();
+      }
+
+      return (content: content, toolCalls: toolCalls);
+    } on DioException catch (e) {
+      final msg = switch (e.type) {
+        DioExceptionType.connectionTimeout => '连接超时',
+        DioExceptionType.receiveTimeout => '响应超时',
+        DioExceptionType.connectionError => '网络连接失败',
+        DioExceptionType.cancel => '请求已取消',
+        _ => switch (e.response?.statusCode) {
+            401 => 'API Key 无效',
+            429 => '请求太频繁',
+            _ => '请求失败(${e.response?.statusCode})',
+          },
+      };
+      throw AiException(msg);
+    }
+  }
+
   Future<List<String>> fetchModels() async {
     try {
       final resp = await _dio.get(

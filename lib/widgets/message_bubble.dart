@@ -301,25 +301,27 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildAssistantColumn(BuildContext context, ThemeData theme, bool isMatch) {
     final state = isStreaming ? AssistantState.streaming : assistantState;
+    final avIcon = assistantIcon ?? Icons.smart_toy;
+    final avColor = assistantColor ?? const Color(0xFF6366F1);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 3),
+          padding: const EdgeInsets.only(left: 2, bottom: 4),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               AssistantAvatar(
-                icon: assistantIcon ?? Icons.smart_toy,
-                color: assistantColor ?? const Color(0xFF6366F1),
-                size: 24,
+                icon: avIcon,
+                color: avColor,
+                size: 28,
                 state: state,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Text(
                 assistantName ?? 'AI',
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: assistantColor ?? theme.colorScheme.primary,
+                  color: avColor,
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                 ),

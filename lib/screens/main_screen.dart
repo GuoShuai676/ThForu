@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'conversations_screen.dart';
 import 'github_screen.dart';
+import 'terminal_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -14,37 +16,34 @@ class _MainScreenState extends State<MainScreen> {
 
   final _screens = const [
     ConversationsScreen(),
+    TerminalScreen(),
     GitHubScreen(),
   ];
 
   DateTime? _lastBackPress;
 
-  Future<bool> _onBackPress() async {
-    if (_currentIndex != 0) {
-      setState(() => _currentIndex = 0);
-      return false;
-    }
-    final now = DateTime.now();
-    if (_lastBackPress != null && now.difference(_lastBackPress!) < const Duration(seconds: 2)) {
-      return true;
-    }
-    _lastBackPress = now;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('再按一次退出'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-    return false;
-  }
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        await _onBackPress();
+        if (_currentIndex != 0) {
+          setState(() => _currentIndex = 0);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPress != null && now.difference(_lastBackPress!) < const Duration(seconds: 2)) {
+          SystemNavigator.pop();
+          return;
+        }
+        _lastBackPress = now;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('再按一次退出'),
+            duration: Duration(seconds: 2),
+          ),
+        );
       },
       child: Scaffold(
         body: IndexedStack(
@@ -59,6 +58,11 @@ class _MainScreenState extends State<MainScreen> {
               icon: Icon(Icons.chat_bubble_outline),
               selectedIcon: Icon(Icons.chat_bubble),
               label: '聊天',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.terminal),
+              selectedIcon: Icon(Icons.terminal),
+              label: '终端',
             ),
             NavigationDestination(
               icon: Icon(Icons.code),

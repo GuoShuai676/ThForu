@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../db/conversation_dao.dart';
 import '../db/message_dao.dart';
+import '../db/memory_dao.dart';
 import '../services/image_service.dart';
 import '../services/audio_service.dart';
 import '../models/provider_config.dart';
 import '../models/expert_panel.dart';
 import '../models/persona.dart';
+import '../tools/tool_registry.dart';
+import '../tools/tool_executor.dart';
 import 'provider_list_notifier.dart';
 import 'expert_panel_list_notifier.dart';
 import 'conversation_list_notifier.dart';
@@ -24,6 +27,20 @@ final conversationDaoProvider = Provider<ConversationDao>((ref) {
 
 final messageDaoProvider = Provider<MessageDao>((ref) {
   return MessageDao();
+});
+
+final memoryDaoProvider = Provider<MemoryDao>((ref) {
+  return MemoryDao();
+});
+
+final toolRegistryProvider = Provider<ToolRegistry>((ref) {
+  final memoryDao = ref.watch(memoryDaoProvider);
+  return ToolRegistry(memoryDao);
+});
+
+final toolExecutorProvider = Provider<ToolExecutor>((ref) {
+  final memoryDao = ref.watch(memoryDaoProvider);
+  return ToolExecutor(memoryDao);
 });
 
 final imageServiceProvider = Provider<ImageService>((ref) {
@@ -50,8 +67,11 @@ final chatProvider =
   (ref, conversationId) {
     final messageDao = ref.watch(messageDaoProvider);
     final conversationDao = ref.watch(conversationDaoProvider);
+    final memoryDao = ref.watch(memoryDaoProvider);
+    final toolRegistry = ref.watch(toolRegistryProvider);
+    final toolExecutor = ref.watch(toolExecutorProvider);
     ref.keepAlive();
-    return ChatNotifier(conversationId, messageDao, conversationDao);
+    return ChatNotifier(conversationId, messageDao, conversationDao, memoryDao, toolRegistry, toolExecutor);
   },
 );
 

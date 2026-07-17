@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/expert_panel.dart';
+import '../models/provider_config.dart';
 import '../state/providers.dart';
 import '../widgets/conversation_tile.dart';
 
@@ -437,27 +438,19 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     }
 
     if (mode == 'normal') {
-      final selected = await showDialog<dynamic>(
+      final selected = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (ctx) => SimpleDialog(
-          title: const Text('选择 AI 模型'),
-          children: providers.map<Widget>((p) {
-            return SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, p),
-              child: ListTile(
-                leading: const Icon(Icons.smart_toy),
-                title: Text(p.name),
-                subtitle: Text(p.modelName),
-              ),
-            );
-          }).toList(),
-        ),
+        builder: (ctx) {
+          return _ModelPickerDialog(providers: providers);
+        },
       );
 
       if (selected != null) {
+        final providerConfig = selected['provider'] as AIProviderConfig;
+        final modelName = selected['model'] as String;
         final conv = await ref.read(conversationListProvider.notifier).create(
-              providerConfigId: selected.id,
-              modelName: selected.modelName,
+              providerConfigId: providerConfig.id,
+              modelName: modelName,
               personaId: personaId,
             );
         if (mounted) {
@@ -521,5 +514,151 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         }
       }
     }
+  }
+}
+
+class _ModelPickerDialog extends StatefulWidget {
+  final List providers;
+  const _ModelPickerDialog({required this.providers});
+
+  @override
+  State<_ModelPickerDialog> createState() => _ModelPickerDialogState();
+}
+
+class _ModelPickerDialogState extends State<_ModelPickerDialog> {
+  AIProviderConfig? _selectedProvider;
+  String? _selectedModel;
+  final _customModelCtrl = TextEditingController();
+  bool _useCustomModel = false;
+
+  @override
+  void dispose() {
+    _customModelCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_selectedProvider == null) {
+      return SimpleDialog(
+        title: const Text('选择 AI 提供商'),
+        children: widget.providers.map<Widget>((p) {
+          return SimpleDialogOption(
+            onPressed: () {
+              setState(() {
+                _selectedProvider = p;
+                final models = p.availableModels;
+                if (models.isNotEmpty) {
+                  _selectedModel = models.first;
+                } else {
+                  _selectedModel = p.modelName;
+                  _customModelCtrl.text = p.modelName;
+                }
+              });
+            },
+            child: ListTile(
+              leading: const Icon(Icons.dns),
+              title: Text(p.name),
+              subtitle: Text(p.modelName),
+            ),
+          );
+        }).toList(),
+      );
+    }
+
+    final provider = _selectedProvider!;
+    final models = provider.availableModels.isNotEmpty
+        ? provider.availableModels
+        : [provider.modelName];
+
+    return AlertDialog(
+      title: Text('${provider.name} - 选择模型'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (models.length > 1 || models.first.isNotEmpty) ...[
+              Text('可用模型', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.3,
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: models.length,
+                  itemBuilder: (ctx, i) {
+                    final model = models[i];
+                    final isSelected = !_useCustomModel && _selectedModel == model;
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                        color: isSelected ? theme.colorScheme.primary : null,
+                        size: 20,
+                      ),
+                      title: Text(model, style: TextStyle(fontSize: 13)),
+                      onTap: () {
+                        setState(() {
+                          _selectedModel = model;
+                          _useCustomModel = false;
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+              const Divider(height: 16),
+            ],
+            Row(
+              children: [
+                Checkbox(
+                  value: _useCustomModel,
+                  onChanged: (v) {
+                    setState(() {
+                      _useCustomModel = v ?? false;
+                      if (_useCustomModel && _customModelCtrl.text.isEmpty) {
+                        _customModelCtrl.text = _selectedModel ?? '';
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(width: 4),
+                const Text('自定义模型名称'),
+              ],
+            ),
+            if (_useCustomModel)
+              TextField(
+                controller: _customModelCtrl,
+                decoration: const InputDecoration(
+                  hintText: '输入模型名称',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (v) => setState(() => _selectedModel = v),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _selectedModel != null && _selectedModel!.isNotEmpty
+              ? () => Navigator.pop(context, {
+                  'provider': provider,
+                  'model': _useCustomModel ? _customModelCtrl.text.trim() : _selectedModel,
+                })
+              : null,
+          child: const Text('开始对话'),
+        ),
+      ],
+    );
   }
 }

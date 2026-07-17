@@ -15,6 +15,8 @@ class Message {
   final Map<String, dynamic>? metadata;
   final DateTime createdAt;
   final bool isFavorite;
+  final String? toolCallId;
+  final List<Map<String, dynamic>>? toolCalls;
 
   Message({
     String? id,
@@ -27,11 +29,15 @@ class Message {
     this.metadata,
     DateTime? createdAt,
     this.isFavorite = false,
+    this.toolCallId,
+    this.toolCalls,
   })  : id = id ?? _uuid.v4(),
         createdAt = createdAt ?? DateTime.now();
 
   bool get hasImages => imagePaths != null && imagePaths!.isNotEmpty;
   bool get hasFile => filePath != null;
+  bool get isToolCall => toolCalls != null && toolCalls!.isNotEmpty;
+  bool get isToolResult => role == 'tool';
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -46,6 +52,8 @@ class Message {
             metadata != null ? jsonEncode(metadata) : null,
         'created_at': createdAt.millisecondsSinceEpoch,
         'is_favorite': isFavorite ? 1 : 0,
+        'tool_call_id': toolCallId,
+        'tool_calls': toolCalls != null ? jsonEncode(toolCalls) : null,
       };
 
   factory Message.fromMap(Map<String, dynamic> map) {
@@ -59,6 +67,11 @@ class Message {
       meta = (jsonDecode(map['metadata'] as String) as Map)
           .cast<String, dynamic>();
     }
+    List<Map<String, dynamic>>? tcs;
+    if (map['tool_calls'] != null) {
+      tcs = (jsonDecode(map['tool_calls'] as String) as List)
+          .cast<Map<String, dynamic>>();
+    }
     return Message(
       id: map['id'] as String,
       conversationId: map['conversation_id'] as String,
@@ -71,12 +84,30 @@ class Message {
       createdAt:
           DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       isFavorite: (map['is_favorite'] as int?) == 1,
+      toolCallId: map['tool_call_id'] as String?,
+      toolCalls: tcs,
     );
   }
 
   Map<String, dynamic> toOpenAIMessage() {
-    if (!hasImages && !hasFile) {
+    if (!hasImages && !hasFile && !isToolResult && !isToolCall) {
       return {'role': role, 'content': content};
+    }
+
+    if (isToolResult) {
+      return {
+        'role': 'tool',
+        'tool_call_id': toolCallId,
+        'content': content,
+      };
+    }
+
+    if (isToolCall) {
+      return {
+        'role': 'assistant',
+        'content': content.isEmpty ? null : content,
+        'tool_calls': toolCalls,
+      };
     }
 
     final contentList = <Map<String, dynamic>>[
@@ -123,6 +154,8 @@ class Message {
     String? fileName,
     Map<String, dynamic>? metadata,
     bool? isFavorite,
+    String? toolCallId,
+    List<Map<String, dynamic>>? toolCalls,
   }) {
     return Message(
       id: id,
@@ -135,6 +168,8 @@ class Message {
       metadata: metadata ?? this.metadata,
       createdAt: createdAt,
       isFavorite: isFavorite ?? this.isFavorite,
+      toolCallId: toolCallId ?? this.toolCallId,
+      toolCalls: toolCalls ?? this.toolCalls,
     );
   }
 }

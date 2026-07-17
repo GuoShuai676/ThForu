@@ -5,6 +5,7 @@ import 'screens/main_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/favorites_screen.dart';
+import 'screens/memory_screen.dart';
 
 class AIApp extends ConsumerWidget {
   const AIApp({super.key});
@@ -98,6 +99,10 @@ class AIApp extends ConsumerWidget {
           case '/favorites':
             return MaterialPageRoute(
               builder: (_) => const FavoritesScreen(),
+            );
+          case '/memory':
+            return MaterialPageRoute(
+              builder: (_) => const MemoryScreen(),
             );
           default:
             return MaterialPageRoute(

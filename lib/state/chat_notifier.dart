@@ -7,9 +7,13 @@ import '../models/provider_config.dart';
 import '../models/expert_panel.dart';
 import '../db/message_dao.dart';
 import '../db/conversation_dao.dart';
+import '../db/memory_dao.dart';
 import '../services/ai_service.dart';
 import '../services/expert_mode_service.dart';
 import '../services/deep_search_service.dart';
+import '../tools/tool_registry.dart';
+import '../tools/tool_executor.dart';
+import '../tools/tool_definition.dart';
 import 'chat_state.dart';
 import '../services/token_counter.dart';
 
@@ -17,10 +21,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final String conversationId;
   final MessageDao _messageDao;
   final ConversationDao _conversationDao;
+  final ToolRegistry _toolRegistry;
+  final ToolExecutor _toolExecutor;
   int _activeRunId = 0;
   DateTime _lastUiUpdate = DateTime.now();
 
-  ChatNotifier(this.conversationId, this._messageDao, this._conversationDao)
+  ChatNotifier(this.conversationId, this._messageDao, this._conversationDao, MemoryDao memoryDao, this._toolRegistry, this._toolExecutor)
       : super(const ChatState()) {
     loadMessages();
   }
@@ -32,6 +38,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       isStreaming: state.isStreaming,
       expertPhase: state.expertPhase,
       expertStatuses: state.expertStatuses,
+      toolExecutions: const [],
     );
   }
 
@@ -161,7 +168,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
         }
       }
     } catch (_) {}
-    if (replyToId != null && replyPreview != null && replyPreview!.isNotEmpty) {
+    if (replyToId != null && replyPreview != null && replyPreview.isNotEmpty) {
       history.insert(0, Message(
         conversationId: conversationId,
         role: 'system',
@@ -172,49 +179,167 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final aiService = AiService(providerConfig);
 
     try {
-      final fullBuf = StringBuffer();
-      DateTime lastDbWrite = DateTime.now();
-      await for (final chunk in aiService.streamChat(
-        history: history,
-        newUserMessage: text,
-        imagePaths: imagePaths,
-        overrideModel: overrideModel,
-        reasoningEffort: reasoningEffort,
-        isCancelled: () => _activeRunId != myRunId,
-      )) {
-        if (_activeRunId != myRunId) {
-          await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
-          WakelockPlus.disable();
-          return;
-        }
-        final clean = StringBuffer();
-        for (var i = 0; i < chunk.length; i++) {
-          final c = chunk.codeUnitAt(i);
-          if (c < 0xD800 || c > 0xDFFF) clean.writeCharCode(c);
-        }
-        fullBuf.write(clean);
-
-        final now = DateTime.now();
-        if (now.difference(lastDbWrite).inMilliseconds > 2000) {
-          lastDbWrite = now;
-          await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
-        }
-
-        if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
-          _lastUiUpdate = now;
-          try {
-            final content = fullBuf.toString();
-            if (_activeRunId != myRunId) return;
-            state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: true);
-          } catch (_) {}
+      final openAiMessages = <Map<String, dynamic>>[];
+      for (final msg in history) {
+        if (msg.role == 'system' || msg.role == 'user' || msg.role == 'assistant') {
+          openAiMessages.add(msg.toOpenAIMessage());
         }
       }
+      final userMsgMap = Message(conversationId: '', role: 'user', content: text, imagePaths: imagePaths).toOpenAIMessage();
+      openAiMessages.add(userMsgMap);
 
-      if (_activeRunId != myRunId) return;
-      try {
-        final content = fullBuf.toString();
-        state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: false);
-      } catch (_) {}
+      final toolsEnabled = _toolRegistry.hasTools;
+      const int maxToolRounds = 5;
+
+      for (int round = 0; round < maxToolRounds; round++) {
+        if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+
+        if (toolsEnabled && round == 0) {
+          try {
+            final toolResult = await aiService.chatWithTools(
+              messages: openAiMessages,
+              tools: _toolRegistry.openAiTools,
+            );
+
+            final toolCallsRaw = toolResult.toolCalls;
+            if (toolCallsRaw == null || toolCallsRaw.isEmpty) {
+              final preContent = toolResult.content ?? '';
+              if (preContent.isEmpty) break;
+              openAiMessages.add({'role': 'assistant', 'content': preContent});
+              break;
+            }
+
+            final assistantToolMsg = Message(
+              conversationId: conversationId,
+              role: 'assistant',
+              content: toolResult.content ?? '',
+              toolCalls: toolCallsRaw,
+            );
+            await _messageDao.insert(assistantToolMsg);
+            state = state.copyWith(
+              messages: [...state.messages, assistantToolMsg],
+              isStreaming: true,
+            );
+
+            openAiMessages.add({
+              'role': 'assistant',
+              'content': toolResult.content?.isEmpty == true ? null : toolResult.content,
+              'tool_calls': toolCallsRaw,
+            });
+
+            final execInfos = <ToolExecInfo>[];
+            for (final tc in toolCallsRaw) {
+              final tcId = tc['id'] as String;
+              final funcName = tc['function']?['name'] as String? ?? 'unknown';
+              Map<String, dynamic> args = {};
+              try {
+                final argsStr = tc['function']?['arguments'] as String? ?? '{}';
+                args = jsonDecode(argsStr) as Map<String, dynamic>;
+              } catch (_) {}
+
+              String summary = funcName;
+              if (funcName == 'terminal') {
+                summary = args['command'] as String? ?? funcName;
+              } else if (funcName == 'web_search') {
+                summary = args['query'] as String? ?? funcName;
+              } else if (funcName == 'memory') {
+                summary = '${args['action']}: ${args['key'] ?? args['query'] ?? ''}';
+              }
+
+              execInfos.add(ToolExecInfo(id: tcId, name: funcName, summary: summary));
+            }
+            state = state.copyWith(toolExecutions: execInfos);
+
+            for (int i = 0; i < toolCallsRaw.length; i++) {
+              final tc = toolCallsRaw[i];
+              final tcId = tc['id'] as String;
+              final funcName = tc['function']?['name'] as String? ?? 'unknown';
+              Map<String, dynamic> args = {};
+              try {
+                final argsStr = tc['function']?['arguments'] as String? ?? '{}';
+                args = jsonDecode(argsStr) as Map<String, dynamic>;
+              } catch (_) {}
+
+              final toolCall = ToolCall(id: tcId, name: funcName, arguments: args);
+              final result = await _toolExecutor.execute(toolCall);
+
+              final updatedExecs = List<ToolExecInfo>.from(state.toolExecutions);
+              final idx = updatedExecs.indexWhere((e) => e.id == tcId);
+              if (idx >= 0) {
+                updatedExecs[idx] = updatedExecs[idx].copyWith(
+                  status: result.isError ? ToolExecStatus.failed : ToolExecStatus.completed,
+                  output: result.output.length > 500 ? result.output.substring(0, 500) + '...' : result.output,
+                );
+              }
+              state = state.copyWith(toolExecutions: updatedExecs);
+
+              openAiMessages.add({
+                'role': 'tool',
+                'tool_call_id': tcId,
+                'name': funcName,
+                'content': result.output,
+              });
+            }
+            continue;
+          } catch (_) {
+          }
+        }
+
+        if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+
+        final fullBuf = StringBuffer();
+        DateTime lastDbWrite = DateTime.now();
+        await for (final chunk in aiService.streamChat(
+          history: history,
+          newUserMessage: text,
+          imagePaths: imagePaths,
+          overrideModel: overrideModel,
+          reasoningEffort: reasoningEffort,
+          isCancelled: () => _activeRunId != myRunId,
+        )) {
+          if (_activeRunId != myRunId) {
+            await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
+            WakelockPlus.disable();
+            return;
+          }
+          final clean = StringBuffer();
+          for (var i = 0; i < chunk.length; i++) {
+            final c = chunk.codeUnitAt(i);
+            if (c < 0xD800 || c > 0xDFFF) clean.writeCharCode(c);
+          }
+          fullBuf.write(clean);
+
+          final now = DateTime.now();
+          if (now.difference(lastDbWrite).inMilliseconds > 2000) {
+            lastDbWrite = now;
+            await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
+          }
+
+          if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
+            _lastUiUpdate = now;
+            try {
+              final content = fullBuf.toString();
+              if (_activeRunId != myRunId) return;
+              state = ChatState(
+                messages: _updateMessageInState(assistantMsg.id, content),
+                isStreaming: true,
+                toolExecutions: state.toolExecutions,
+              );
+            } catch (_) {}
+          }
+        }
+
+        if (_activeRunId != myRunId) return;
+        try {
+          final content = fullBuf.toString();
+          state = ChatState(
+            messages: _updateMessageInState(assistantMsg.id, content),
+            isStreaming: false,
+            toolExecutions: state.toolExecutions,
+          );
+        } catch (_) {}
+        break;
+      }
     } on AiException catch (e) {
       if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
       await _messageDao.updateContent(conversationId, assistantMsg.id, '错误: ${e.message}');
@@ -223,6 +348,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
           messages: _updateMessageInState(assistantMsg.id, '错误: ${e.message}'),
           isStreaming: false,
           errorMessage: e.message,
+          toolExecutions: const [],
         );
       } catch (_) {}
     } catch (e) {
@@ -233,12 +359,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
           messages: _updateMessageInState(assistantMsg.id, '未知错误: $e'),
           isStreaming: false,
           errorMessage: e.toString(),
+          toolExecutions: const [],
         );
       } catch (_) {}
     }
 
     await _updateConversationTime();
     WakelockPlus.disable();
+    if (_activeRunId == myRunId) {
+      state = state.copyWith(toolExecutions: const []);
+    }
   }
 
   Future<void> sendDeepSearchMessage({

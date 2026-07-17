@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +10,7 @@ import '../models/conversation.dart';
 import '../models/provider_config.dart';
 import '../models/expert_panel.dart';
 import '../models/persona.dart';
+import '../models/companion_config.dart';
 import '../state/providers.dart';
 import '../state/chat_state.dart';
 import '../widgets/message_bubble.dart';
@@ -50,13 +51,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
   bool _errorExpanded = false;
   Offset? _companionPosition;
 
-  static const double _companionWidth = 72;
-  static const double _companionHeight = 108;
-
-  Offset _defaultCompanionPosition(Size size, EdgeInsets padding) {
+  Offset _defaultCompanionPosition(
+    Size size,
+    EdgeInsets padding,
+    double companionWidth,
+    double companionHeight,
+  ) {
     return Offset(
-      size.width - _companionWidth - 12,
-      size.height - _companionHeight - padding.bottom - 88,
+      size.width - companionWidth - 12,
+      size.height - companionHeight - padding.bottom - 88,
     );
   }
 
@@ -64,14 +67,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     Offset position,
     Size size,
     EdgeInsets padding,
+    double companionWidth,
+    double companionHeight,
   ) {
     const margin = 8.0;
     final minX = margin;
     final minY = margin + padding.top;
-    final maxX = math.max(minX, size.width - _companionWidth - margin);
+    final maxX = math.max(minX, size.width - companionWidth - margin);
     final maxY = math.max(
       minY,
-      size.height - _companionHeight - padding.bottom - 76,
+      size.height - companionHeight - padding.bottom - 76,
     );
     return Offset(
       position.dx.clamp(minX, maxX).toDouble(),
@@ -83,14 +88,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     DragUpdateDetails details,
     Size size,
     EdgeInsets padding,
+    double companionWidth,
+    double companionHeight,
   ) {
-    final current =
-        _companionPosition ?? _defaultCompanionPosition(size, padding);
+    final current = _companionPosition ??
+        _defaultCompanionPosition(
+            size, padding, companionWidth, companionHeight);
     setState(() {
       _companionPosition = _clampCompanionPosition(
         current + details.delta,
         size,
         padding,
+        companionWidth,
+        companionHeight,
+      );
+    });
+  }
+
+  void _dockCompanion(
+    Size size,
+    EdgeInsets padding,
+    double companionWidth,
+    double companionHeight,
+  ) {
+    final current = _companionPosition ??
+        _defaultCompanionPosition(
+            size, padding, companionWidth, companionHeight);
+    const margin = 12.0;
+    final dockLeft = current.dx + companionWidth / 2 < size.width / 2;
+    final targetX = dockLeft ? margin : size.width - companionWidth - margin;
+    setState(() {
+      _companionPosition = _clampCompanionPosition(
+        Offset(targetX, current.dy),
+        size,
+        padding,
+        companionWidth,
+        companionHeight,
       );
     });
   }
@@ -113,8 +146,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final pixels = _scrollController.position.pixels;
-    // reverse:true → pixels 0 == bottom. Treat any meaningful upward
-    // movement (≥ 60px from bottom) as "user scrolled up" so we stop
+    // reverse:true 鈫?pixels 0 == bottom. Treat any meaningful upward
+    // movement (鈮?60px from bottom) as "user scrolled up" so we stop
     // auto-scrolling immediately, instead of fighting the user's gesture.
     if (pixels >= 60 && !_userScrolledUp) {
       _userScrolledUp = true;
@@ -146,7 +179,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     super.dispose();
   }
 
-  // reverse:true — pixels=0 = bottom, pixels=maxExtent = top
+  // reverse:true 鈥?pixels=0 = bottom, pixels=maxExtent = top
   bool get _isNearBottom {
     if (!_scrollController.hasClients) return true;
     return _scrollController.position.pixels < 100;
@@ -169,14 +202,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     if (!mounted || !_scrollController.hasClients) return;
     final maxExtent = _scrollController.position.maxScrollExtent;
     if (maxExtent <= 0) {
-      // Layout not done yet — retry next frame
+      // Layout not done yet 鈥?retry next frame
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _scrollToBottomInitial());
       return;
     }
     _scrollController.jumpTo(maxExtent);
     // After the jump, check if we really reached it.  If not, the
-    // extent grew during layout (more items were built) — retry once.
+    // extent grew during layout (more items were built) 鈥?retry once.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
       final newExtent = _scrollController.position.maxScrollExtent;
@@ -210,7 +243,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       return;
     }
 
-    // Target not built yet — proportional jump to bring it into view
+    // Target not built yet 鈥?proportional jump to bring it into view
     final messages = ref.read(chatProvider(widget.conversationId)).messages;
     final idx = messages.indexWhere((m) => m.id == messageId);
     if (idx < 0) return; // message deleted?
@@ -318,14 +351,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                   final start = (matchPos - 20).clamp(0, content.length);
                   final end = (matchPos + _searchQuery.length + 60)
                       .clamp(0, content.length);
-                  snippet = (start > 0 ? '…' : '') +
+                  snippet = (start > 0 ? '...' : '') +
                       content.substring(start, end).replaceAll('\n', ' ') +
-                      (end < content.length ? '…' : '');
+                      (end < content.length ? '...' : '');
                 } else {
                   snippet = content
                       .replaceAll('\n', ' ')
                       .substring(0, 120.clamp(0, content.length));
-                  if (content.length > 120) snippet += '…';
+                  if (content.length > 120) snippet += '...';
                 }
 
                 return Card(
@@ -467,16 +500,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('批量删除'),
-        content: Text('确定删除 ${_selectedMessageIds.length} 条消息？'),
+        title: const Text('鎵归噺鍒犻櫎'),
+        content: Text('纭畾鍒犻櫎 ${_selectedMessageIds.length} 鏉℃秷鎭紵'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
+              child: const Text('鍙栨秷')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('删除')),
+              child: const Text('鍒犻櫎')),
         ],
       ),
     );
@@ -514,27 +547,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .toList();
     if (selected.isEmpty) return;
 
-    final nameCtrl = TextEditingController(text: '对话导出');
+    final nameCtrl = TextEditingController(text: '瀵硅瘽瀵煎嚭');
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('导出 Word'),
+        title: const Text('瀵煎嚭 Word'),
         content: TextField(
             controller: nameCtrl,
             decoration: const InputDecoration(labelText: '文件名')),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+              onPressed: () => Navigator.pop(ctx), child: const Text('鍙栨秷')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
-              child: const Text('导出')),
+              child: const Text('瀵煎嚭')),
         ],
       ),
     );
     if (name == null || name.isEmpty) return;
 
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
     if (dir == null) return;
 
     try {
@@ -546,18 +579,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
           title: name, messages: messages, outputPath: file.path);
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
+            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${file.path}')));
         final result = await showModalBottomSheet<String>(
           context: context,
           builder: (ctx) => SafeArea(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
                 leading: const Icon(Icons.share),
-                title: const Text('分享文件'),
+                title: const Text('鍒嗕韩鏂囦欢'),
                 onTap: () => Navigator.pop(ctx, 'share')),
             ListTile(
                 leading: const Icon(Icons.check),
-                title: const Text('完成'),
+                title: const Text('瀹屾垚'),
                 onTap: () => Navigator.pop(ctx)),
           ])),
         );
@@ -567,7 +600,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
+            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
     }
     setState(() {
       _selectedMessageIds.clear();
@@ -600,22 +633,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '对话记录';
+    final title = conv?.title ?? '瀵硅瘽璁板綍';
 
     final nameCtrl = TextEditingController(text: title);
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('导出 Word'),
+        title: const Text('瀵煎嚭 Word'),
         content: TextField(
             controller: nameCtrl,
             decoration: const InputDecoration(labelText: '文件名')),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+              onPressed: () => Navigator.pop(ctx), child: const Text('鍙栨秷')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
-              child: const Text('导出')),
+              child: const Text('瀵煎嚭')),
         ],
       ),
     );
@@ -623,7 +656,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
 
     try {
       final dir =
-          await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+          await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
       if (dir == null) return;
       final file = File('$dir/$name.docx');
       final messages = chatState.messages
@@ -633,18 +666,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
           title: name, messages: messages, outputPath: file.path);
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
+            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${file.path}')));
         final result = await showModalBottomSheet<String>(
           context: context,
           builder: (ctx) => SafeArea(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
                 leading: const Icon(Icons.share),
-                title: const Text('分享文件'),
+                title: const Text('鍒嗕韩鏂囦欢'),
                 onTap: () => Navigator.pop(ctx, 'share')),
             ListTile(
                 leading: const Icon(Icons.check),
-                title: const Text('完成'),
+                title: const Text('瀹屾垚'),
                 onTap: () => Navigator.pop(ctx)),
           ])),
         );
@@ -654,7 +687,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
+            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
     }
   }
 
@@ -664,8 +697,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     final providers = ref.watch(providerListProvider);
     final conversations = ref.watch(conversationListProvider);
     final panels = ref.watch(expertPanelListProvider);
+    final companionConfig = ref.watch(companionConfigProvider);
 
-    // reverse:true makes the list grow upward from the bottom —
+    // reverse:true makes the list grow upward from the bottom 鈥?
     // first frame already shows the newest messages, no jump needed.
     ref.listen(chatProvider(widget.conversationId), (prev, next) {
       final prevLen = prev?.messages.length ?? 0;
@@ -744,6 +778,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     final supportsFile = isExpertMode
         ? expertConfigs.any((c) => c.supportsFile)
         : (provider?.supportsFile ?? false);
+    final skills = ref.watch(skillListProvider);
     final hintText = isExpertMode ? '向兼听提问...' : '输入消息...';
 
     return Scaffold(
@@ -762,7 +797,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                 controller: _searchCtrl,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  hintText: '搜索消息...',
+                  hintText: '鎼滅储娑堟伅...',
                   border: InputBorder.none,
                 ),
               ),
@@ -783,11 +818,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                         onPressed: _selectAllMessages),
                     IconButton(
                         icon: const Icon(Icons.delete_outline),
-                        tooltip: '删除',
+                        tooltip: '鍒犻櫎',
                         onPressed: _batchDelete),
                     IconButton(
                         icon: const Icon(Icons.star_outline),
-                        tooltip: '收藏',
+                        tooltip: '鏀惰棌',
                         onPressed: _batchFavorite),
                     PopupMenuButton<String>(
                       onSelected: (v) {
@@ -799,11 +834,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       },
                       itemBuilder: (_) => [
                         const PopupMenuItem(
-                            value: 'word', child: Text('导出 Word')),
+                            value: 'word', child: Text('瀵煎嚭 Word')),
                         const PopupMenuItem(
-                            value: 'md', child: Text('导出 Markdown')),
+                            value: 'md', child: Text('瀵煎嚭 Markdown')),
                         const PopupMenuItem(
-                            value: 'txt', child: Text('导出 TXT')),
+                            value: 'txt', child: Text('瀵煎嚭 TXT')),
                       ],
                       child: const Icon(Icons.description),
                     ),
@@ -815,7 +850,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                   actions: [
                     IconButton(
                       icon: const Icon(Icons.search),
-                      tooltip: '搜索聊天记录',
+                      tooltip: '鎼滅储鑱婂ぉ璁板綍',
                       onPressed: () {
                         setState(() => _showSearch = true);
                       },
@@ -825,7 +860,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                         padding: const EdgeInsets.only(right: 4),
                         child: Chip(
                           label: Text(
-                            '兼听·${expertPanel.name}',
+                            '鍏煎惉路${expertPanel.name}',
                             style: const TextStyle(fontSize: 11),
                           ),
                           backgroundColor:
@@ -866,14 +901,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       },
                       itemBuilder: (ctx) => [
                         const PopupMenuItem(
-                            value: 'select', child: Text('选择消息')),
+                            value: 'select', child: Text('閫夋嫨娑堟伅')),
                         const PopupMenuItem(
-                            value: 'wallpaper', child: Text('设置壁纸')),
+                            value: 'wallpaper', child: Text('璁剧疆澹佺焊')),
                         if (conv?.wallpaperPath != null)
                           const PopupMenuItem(
-                              value: 'clear_wallpaper', child: Text('清除壁纸')),
+                              value: 'clear_wallpaper', child: Text('娓呴櫎澹佺焊')),
                         const PopupMenuItem(
-                            value: 'delete', child: Text('删除会话')),
+                            value: 'delete', child: Text('鍒犻櫎浼氳瘽')),
                       ],
                     ),
                   ],
@@ -952,7 +987,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                                 reasoningEffort: currentConv.reasoningEffort);
                           }
                         },
-                        child: const Text('重试'),
+                        child: const Text('閲嶈瘯'),
                       ),
                     TextButton(
                       onPressed: () {
@@ -963,7 +998,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                           _errorExpanded = false;
                         });
                       },
-                      child: const Text('关闭'),
+                      child: const Text('鍏抽棴'),
                     ),
                   ],
                 ),
@@ -1158,6 +1193,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                           overrideModel: modelToUse,
                           reasoningEffort: currentConv?.reasoningEffort,
                           useTools: useTools == true,
+                          allSkills: skills,
                         );
                       } else {
                         throw Exception('请先在设置中添加一个可用的 API 配置');
@@ -1197,7 +1233,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
               ),
             ),
           // Layer 2.5: draggable companion character
-          if (!_showSearch)
+          if (!_showSearch && companionConfig.enabled)
             Positioned.fill(
               child: LayoutBuilder(
                 builder: (context, constraints) {
@@ -1206,11 +1242,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                     constraints.maxHeight,
                   );
                   final padding = MediaQuery.paddingOf(context);
+                  final companionWidth = companionConfig.size;
+                  final companionHeight = companionConfig.size * 1.5;
                   final position = _clampCompanionPosition(
                     _companionPosition ??
-                        _defaultCompanionPosition(overlaySize, padding),
+                        _defaultCompanionPosition(
+                          overlaySize,
+                          padding,
+                          companionWidth,
+                          companionHeight,
+                        ),
                     overlaySize,
                     padding,
+                    companionWidth,
+                    companionHeight,
                   );
 
                   return Stack(
@@ -1218,23 +1263,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       Positioned(
                         left: position.dx,
                         top: position.dy,
-                        width: _companionWidth,
-                        height: _companionHeight,
+                        width: companionWidth,
+                        height: companionHeight,
                         child: CompanionCharacter(
                           mood: chatState.isStreaming
                               ? CompanionMood.streaming
                               : (chatState.messages.isEmpty
                                   ? CompanionMood.sleeping
                                   : CompanionMood.idle),
-                          color: persona != null
-                              ? Color(persona.avatarColor)
-                              : const Color(0xFF4F46E5),
-                          size: 64,
-                          name: persona?.name,
+                          color: companionConfig.primary,
+                          accentColor: companionConfig.accent,
+                          size: companionConfig.size,
+                          name: companionConfig.name,
+                          showName: companionConfig.showName,
+                          visualStyle: companionConfig.style ==
+                                  CompanionStyle.hanLi
+                              ? CompanionVisualStyle.hanLi
+                              : CompanionVisualStyle.codex,
                           onDragUpdate: (details) => _moveCompanion(
                             details,
                             overlaySize,
                             padding,
+                            companionWidth,
+                            companionHeight,
+                          ),
+                          onDragEnd: (_) => _dockCompanion(
+                            overlaySize,
+                            padding,
+                            companionWidth,
+                            companionHeight,
                           ),
                         ),
                       ),
@@ -1360,15 +1417,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '对话记录';
+    final title = conv?.title ?? '瀵硅瘽璁板綍';
     final buf = StringBuffer();
     buf.writeln('# $title');
     buf.writeln();
     for (final m in chatState.messages) {
       if (m.role == 'user') {
-        buf.writeln('## 👤 用户');
+        buf.writeln('## 馃懁 鐢ㄦ埛');
       } else {
-        buf.writeln('## 🤖 AI');
+        buf.writeln('## 馃 AI');
       }
       buf.writeln();
       buf.writeln(m.content);
@@ -1376,19 +1433,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     }
 
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.md');
       await f.writeAsString(buf.toString());
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
       }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
+            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
     }
   }
 
@@ -1398,29 +1455,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '对话记录';
+    final title = conv?.title ?? '瀵硅瘽璁板綍';
     final buf = StringBuffer();
     for (final m in chatState.messages) {
-      final role = m.role == 'user' ? '用户' : 'AI';
+      final role = m.role == 'user' ? '鐢ㄦ埛' : 'AI';
       buf.writeln('[]');
       buf.writeln(m.content);
       buf.writeln();
     }
 
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.txt');
       await f.writeAsString(buf.toString());
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
       }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
+            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
     }
   }
 
@@ -1434,30 +1491,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '对话记录';
+    final title = conv?.title ?? '瀵硅瘽璁板綍';
     final buf = StringBuffer();
     buf.writeln('# $title');
     buf.writeln();
     for (final m in selected) {
-      final role = m.role == 'user' ? '用户' : 'AI';
+      final role = m.role == 'user' ? '鐢ㄦ埛' : 'AI';
       buf.writeln('## $role');
       buf.writeln();
       buf.writeln(m.content);
       buf.writeln();
     }
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.md');
       await f.writeAsString(buf.toString());
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
+            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
     }
     setState(() {
       _selectedMessageIds.clear();
@@ -1473,24 +1530,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     if (selected.isEmpty) return;
     final buf = StringBuffer();
     for (final m in selected) {
-      final role = m.role == 'user' ? '用户' : 'AI';
+      final role = m.role == 'user' ? '鐢ㄦ埛' : 'AI';
       buf.writeln('[]');
       buf.writeln(m.content);
       buf.writeln();
     }
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
     if (dir == null) return;
     try {
       final f = File('$dir/export.txt');
       await f.writeAsString(buf.toString());
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
+            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
     }
     setState(() {
       _selectedMessageIds.clear();
@@ -1513,9 +1570,9 @@ class _ModelSelectorChip extends StatelessWidget {
   });
 
   static const _effortLabels = {
-    'low': '轻松',
-    'medium': '适中',
-    'high': '深度',
+    'low': '杞绘澗',
+    'medium': '閫備腑',
+    'high': '娣卞害',
   };
 
   static const _effortIcons = {
@@ -1552,7 +1609,7 @@ class _ModelSelectorChip extends StatelessWidget {
                         size: 20, color: theme.colorScheme.primary),
                     const SizedBox(width: 8),
                     Text(
-                      '切换模型',
+                      '鍒囨崲妯″瀷',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -1568,7 +1625,7 @@ class _ModelSelectorChip extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '模型',
+                  '妯″瀷',
                   style: theme.textTheme.labelMedium?.copyWith(
                     color: theme.colorScheme.outline,
                     fontWeight: FontWeight.w600,
@@ -1643,7 +1700,7 @@ class _ModelSelectorChip extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  '推理深度',
+                  '鎺ㄧ悊娣卞害',
                   style: theme.textTheme.labelMedium?.copyWith(
                     color: theme.colorScheme.outline,
                     fontWeight: FontWeight.w600,
@@ -1723,7 +1780,7 @@ class _ModelSelectorChip extends StatelessWidget {
         ? '${currentModel.substring(0, 16)}...'
         : currentModel;
     final effortLabel = reasoningEffort != null
-        ? ' · ${_effortLabels[reasoningEffort] ?? reasoningEffort}'
+        ? ' 路 ${_effortLabels[reasoningEffort] ?? reasoningEffort}'
         : '';
 
     return GestureDetector(

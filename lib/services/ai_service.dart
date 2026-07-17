@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../models/provider_config.dart';
@@ -14,6 +14,56 @@ class AiService {
           receiveTimeout: const Duration(minutes: 5),
         ));
 
+  bool _supportsReasoningEffort(String model) {
+    final lower = model.toLowerCase();
+    return lower.contains('reasoner') ||
+        RegExp(r'^o[134](?:-|$)').hasMatch(lower) ||
+        lower.startsWith('gpt-5');
+  }
+
+  void _addReasoningEffort(
+    Map<String, dynamic> body,
+    String model,
+    String? reasoningEffort,
+  ) {
+    if (reasoningEffort != null &&
+        reasoningEffort.isNotEmpty &&
+        _supportsReasoningEffort(model)) {
+      body['reasoning_effort'] = reasoningEffort;
+    }
+  }
+
+  String _extractErrorBody(dynamic data) {
+    try {
+      if (data == null) return '';
+      if (data is ResponseBody) return '';
+      if (data is Map) {
+        final err = data['error'];
+        if (err is Map && err['message'] != null) {
+          return err['message'].toString();
+        }
+        if (data['message'] != null) return data['message'].toString();
+      }
+      final text = data.toString();
+      return text.length > 600 ? '${text.substring(0, 600)}...' : text;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _formatHttpError(int? statusCode, dynamic data, String fallback) {
+    final detail = _extractErrorBody(data);
+    final suffix = detail.isNotEmpty ? ': $detail' : '';
+    return switch (statusCode) {
+      400 => '请求参数错误，请检查模型、附件、推理参数或工具能力$suffix',
+      401 => '认证失败：API Key 无效或 Authorization 请求头不正确$suffix',
+      403 => '访问被拒绝，请检查 API 权限$suffix',
+      404 => '接口地址不存在，请检查 BaseURL / Endpoint 配置$suffix',
+      422 => '请求格式不被该接口支持$suffix',
+      429 => '请求太频繁，请稍后再试$suffix',
+      _ => '$fallback${statusCode != null ? "(HTTP $statusCode)" : ""}$suffix',
+    };
+  }
   Stream<String> streamChat({
     required List<Message> history,
     required String newUserMessage,
@@ -51,9 +101,7 @@ class AiService {
       'stream': true,
     };
 
-    if (reasoningEffort != null && reasoningEffort.isNotEmpty) {
-      body['reasoning_effort'] = reasoningEffort;
-    }
+    _addReasoningEffort(body, model, reasoningEffort);
 
     try {
       final response = await _dio.post(
@@ -75,7 +123,13 @@ class AiService {
         return;
       }
       if (response.statusCode != 200) {
-        throw AiException('HTTP ${response.statusCode}');
+        final errorText = await response.data.stream
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .join();
+        throw AiException(
+          _formatHttpError(response.statusCode, errorText, '请求失败'),
+        );
       }
 
       final bodyStream = response.data.stream.cast<List<int>>();
@@ -102,14 +156,10 @@ class AiService {
       }
       final msg = switch (e.type) {
         DioExceptionType.connectionTimeout => '连接超时，请检查网络后重试',
-        DioExceptionType.receiveTimeout => '响应超时（5min），请重试',
+        DioExceptionType.receiveTimeout => '响应超时，请重试',
         DioExceptionType.connectionError => '网络连接失败，请检查网络后重试',
         DioExceptionType.cancel => '请求已取消',
-        _ => switch (e.response?.statusCode) {
-            401 => 'API Key 无效',
-            429 => '请求太频繁，请稍后再试',
-            _ => '请求失败(${e.response?.statusCode}): ${e.message}',
-          },
+        _ => _formatHttpError(e.response?.statusCode, e.response?.data, '请求失败'),
       };
       throw AiException(msg);
     }
@@ -149,9 +199,7 @@ class AiService {
       'messages': messages,
       'stream': false,
     };
-    if (reasoningEffort != null && reasoningEffort.isNotEmpty) {
-      body['reasoning_effort'] = reasoningEffort;
-    }
+    _addReasoningEffort(body, model, reasoningEffort);
 
     try {
       final resp = await _dio.post(
@@ -168,12 +216,7 @@ class AiService {
         DioExceptionType.receiveTimeout => '响应超时，请重试',
         DioExceptionType.connectionError => '网络连接失败，请检查网络后重试',
         DioExceptionType.cancel => '请求已取消',
-        _ => switch (e.response?.statusCode) {
-            401 => 'API Key 无效',
-            429 => '请求太频繁，请稍后再试',
-            404 => '接口地址不存在 (404)，请检查 BaseURL / Endpoint 配置',
-            _ => '请求失败(${e.response?.statusCode})',
-          },
+        _ => _formatHttpError(e.response?.statusCode, e.response?.data, '请求失败'),
       };
       throw AiException(msg);
     }
@@ -205,10 +248,6 @@ class AiService {
         ),
       );
 
-      if (resp.statusCode == 400 || resp.statusCode == 422) {
-        throw AiException('该模型/接口不支持工具调用 (HTTP ${resp.statusCode})');
-      }
-
       final choice = resp.data['choices']?[0]?['message'];
       if (choice == null) throw AiException('Empty response from API');
 
@@ -223,18 +262,18 @@ class AiService {
       return (content: content, toolCalls: toolCalls);
     } on DioException catch (e) {
       if (e.response?.statusCode == 400 || e.response?.statusCode == 422) {
-        throw AiException('该模型/接口不支持工具调用 (HTTP ${e.response?.statusCode})');
+        throw AiException(_formatHttpError(
+          e.response?.statusCode,
+          e.response?.data,
+          '该模型或接口不支持工具调用',
+        ));
       }
       final msg = switch (e.type) {
         DioExceptionType.connectionTimeout => '连接超时',
         DioExceptionType.receiveTimeout => '响应超时',
         DioExceptionType.connectionError => '网络连接失败',
         DioExceptionType.cancel => '请求已取消',
-        _ => switch (e.response?.statusCode) {
-            401 => 'API Key 无效',
-            429 => '请求太频繁',
-            _ => '请求失败(${e.response?.statusCode}): ${e.message}',
-          },
+        _ => _formatHttpError(e.response?.statusCode, e.response?.data, '请求失败'),
       };
       throw AiException(msg);
     }
@@ -248,17 +287,18 @@ class AiService {
       );
       final data = resp.data;
       if (data is Map<String, dynamic> && data['data'] is List) {
-        final models = (data['data'] as List)
+        return (data['data'] as List)
             .whereType<Map<String, dynamic>>()
             .map((m) => m['id'] as String?)
             .where((id) => id != null && id.isNotEmpty)
             .cast<String>()
             .toList();
-        return models;
       }
       return [];
     } on DioException catch (e) {
-      throw AiException('获取模型列表失败: ${e.message}');
+      throw AiException(
+        _formatHttpError(e.response?.statusCode, e.response?.data, '获取模型列表失败'),
+      );
     } catch (e) {
       throw AiException('获取模型列表失败: $e');
     }
@@ -284,24 +324,19 @@ class AiService {
       if (resp.statusCode != null && resp.statusCode! < 300) {
         return '连接成功';
       }
-      return '连接失败: HTTP ${resp.statusCode}';
+      return _formatHttpError(resp.statusCode, resp.data, '连接失败');
     } on DioException catch (e) {
       return switch (e.type) {
         DioExceptionType.connectionTimeout => '连接超时',
         DioExceptionType.connectionError => '无法连接到服务器',
-        _ => switch (e.response?.statusCode) {
-            401 => '认证失败：API Key 无效',
-            403 => '访问被拒绝',
-            404 => '接口不存在 (404)，请检查 URL 配置',
-            429 => '请求过于频繁',
-            _ => '连接失败: ${e.message}',
-          },
+        DioExceptionType.receiveTimeout => '响应超时',
+        DioExceptionType.cancel => '请求已取消',
+        _ => _formatHttpError(e.response?.statusCode, e.response?.data, '连接失败'),
       };
     } catch (e) {
       return '连接失败: $e';
     }
   }
-
   Future<String> transcribeAudio(String filePath) async {
     throw AiException('音频转录功能暂未实现');
   }

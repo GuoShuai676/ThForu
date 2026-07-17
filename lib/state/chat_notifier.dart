@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -114,6 +114,27 @@ class ChatNotifier extends StateNotifier<ChatState> {
     Skill? selectedSkill,
     List<Skill> allSkills = const [],
   }) async {
+    final modelName = (overrideModel != null && overrideModel.isNotEmpty)
+        ? overrideModel
+        : providerConfig.modelName;
+    final missingConfig = <String>[];
+    if (providerConfig.baseUrl.trim().isEmpty) missingConfig.add('BaseURL');
+    final hasCustomAuthHeader = providerConfig.customHeaders.entries.any((e) {
+      final key = e.key.toLowerCase();
+      return e.value.trim().isNotEmpty &&
+          (key == 'authorization' || key == 'api-key' || key == 'x-api-key');
+    });
+    if (providerConfig.apiKey.trim().isEmpty && !hasCustomAuthHeader) {
+      missingConfig.add('API Key 或自定义鉴权请求头');
+    }
+    if (modelName.trim().isEmpty) missingConfig.add('模型名称');
+    if (missingConfig.isNotEmpty) {
+      state = state.copyWith(
+        errorMessage: 'API 配置不完整：请补全 ${missingConfig.join('、')}',
+      );
+      return;
+    }
+
     final effectiveFilePaths =
         filePaths ?? (filePath != null ? [filePath] : null);
     final effectiveFileNames =
@@ -203,7 +224,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     try {
       final relevantMemories = await _memoryDao.getRelevant(text, limit: 5);
       if (relevantMemories.isNotEmpty) {
-        final memBuf = StringBuffer('以下是你对用户的记忆，请在回答时参考：\n');
+        final memBuf = StringBuffer('浠ヤ笅鏄綘瀵圭敤鎴风殑璁板繂锛岃鍦ㄥ洖绛旀椂鍙傝€冿細\n');
         for (final m in relevantMemories) {
           memBuf.writeln('- ${m.key}: ${m.value}');
         }
@@ -226,7 +247,6 @@ class ChatNotifier extends StateNotifier<ChatState> {
             content: '用户正在追问以下内容：「$replyPreview」。请结合上下文回答。',
           ));
     }
-
     final matchedSkill =
         SkillMatcher.match(text, allSkills, manualSelection: selectedSkill);
     if (matchedSkill != null && matchedSkill.systemPrompt.isNotEmpty) {
@@ -240,14 +260,17 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
 
     final aiService = AiService(providerConfig);
-    final effectiveModel = (overrideModel != null && overrideModel.isNotEmpty)
-        ? overrideModel
-        : providerConfig.modelName;
+    final effectiveModel = modelName;
 
     bool toolsExecuted = false;
+    String? toolFinalContent;
     List<Message> streamHistory = history;
 
-    if (useTools && _toolRegistry.hasTools) {
+    final allowedToolNames =
+        SkillMatcher.effectiveTools(_toolRegistry.enabledToolNames, matchedSkill);
+    final openAiTools = _toolRegistry.openAiToolsFor(allowedToolNames);
+
+    if (useTools && openAiTools.isNotEmpty) {
       final openAiMessages = <Map<String, dynamic>>[];
       for (final msg in history) {
         if (msg.role == 'system' ||
@@ -272,12 +295,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
         try {
           final toolResult = await aiService.chatWithTools(
             messages: openAiMessages,
-            tools: _toolRegistry.openAiTools,
+            tools: openAiTools,
             overrideModel: effectiveModel,
           );
 
           if (toolResult.toolCalls == null || toolResult.toolCalls!.isEmpty) {
             if (toolResult.content != null && toolResult.content!.isNotEmpty) {
+              toolFinalContent = toolResult.content;
               openAiMessages
                   .add({'role': 'assistant', 'content': toolResult.content});
             }
@@ -367,6 +391,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
             WakelockPlus.disable();
             return;
           }
+          if (toolsExecuted) {
+            toolFinalContent = '工具已执行，但生成最终回答失败：${e.message}';
+          }
           state = state.copyWith(
             toolExecutions: [
               ...state.toolExecutions,
@@ -381,12 +408,32 @@ class ChatNotifier extends StateNotifier<ChatState> {
           );
           break;
         } catch (e) {
+          if (toolsExecuted) {
+            toolFinalContent = '工具已执行，但生成最终回答失败：$e';
+          }
           break;
         }
       }
     }
 
     try {
+      if (toolsExecuted) {
+        final content = toolFinalContent?.trim().isNotEmpty == true
+            ? toolFinalContent!.trim()
+            : '工具已执行，但模型没有返回最终回答。请查看上方工具结果。';
+        await _messageDao.updateContent(conversationId, assistantMsg.id, content);
+        state = ChatState(
+          messages: _updateMessageInState(assistantMsg.id, content),
+          isStreaming: false,
+        );
+        await _updateConversationTime();
+        WakelockPlus.disable();
+        if (_activeRunId == myRunId) {
+          state = state.copyWith(toolExecutions: const []);
+        }
+        return;
+      }
+
       final fullBuf = StringBuffer();
       DateTime lastDbWrite = DateTime.now();
       await for (final chunk in aiService.streamChat(
@@ -437,10 +484,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
         return;
       }
       await _messageDao.updateContent(
-          conversationId, assistantMsg.id, '错误: ${e.message}');
+          conversationId, assistantMsg.id, '错误：${e.message}');
       try {
         state = ChatState(
-          messages: _updateMessageInState(assistantMsg.id, '错误: ${e.message}'),
+          messages: _updateMessageInState(assistantMsg.id, '错误：${e.message}'),
           isStreaming: false,
           errorMessage: e.message,
           toolExecutions: const [],
@@ -452,10 +499,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
         return;
       }
       await _messageDao.updateContent(
-          conversationId, assistantMsg.id, '未知错误: $e');
+          conversationId, assistantMsg.id, '未知错误：$e');
       try {
         state = ChatState(
-          messages: _updateMessageInState(assistantMsg.id, '未知错误: $e'),
+          messages: _updateMessageInState(assistantMsg.id, '未知错误：$e'),
           isStreaming: false,
           errorMessage: e.toString(),
           toolExecutions: const [],
@@ -489,7 +536,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       final conv = await _conversationDao.getById(conversationId);
       if (conv != null && conv.title == 'New Chat') {
         final title =
-            '深度搜索: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
+            '娣卞害鎼滅储: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
         await _conversationDao.updateTitle(conversationId, title);
       }
     } catch (_) {}
@@ -497,7 +544,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final userMsg = Message(
       conversationId: conversationId,
       role: 'user',
-      content: '🔍 $text',
+      content: '馃攳 $text',
     );
     await _messageDao.insert(userMsg);
 
@@ -557,7 +604,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
             isStreaming: false);
       } catch (_) {}
     } catch (e) {
-      final errContent = '深度搜索失败: $e';
+      final errContent = '娣卞害鎼滅储澶辫触: $e';
       await _messageDao.updateContent(
           conversationId, assistantMsg.id, errContent);
       try {
@@ -694,7 +741,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
 
     final hasSuccess = expertResults.values
-        .any((v) => !v.startsWith('错误:') && !v.startsWith('未知错误:'));
+        .any((v) => !v.startsWith('閿欒:') && !v.startsWith('鏈煡閿欒:'));
     if (!hasSuccess) {
       if (_activeRunId != myRunId) {
         WakelockPlus.disable();
@@ -704,7 +751,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
         messages: allMessages,
         isStreaming: false,
         expertPhase: ExpertPhase.none,
-        errorMessage: '所有兼听请求失败，请检查 API 配置',
+        errorMessage: '鎵€鏈夊吋鍚姹傚け璐ワ紝璇锋鏌?API 閰嶇疆',
       );
       WakelockPlus.disable();
       return;
@@ -753,7 +800,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       role: 'system',
       content: panel.synthesisPrompt.isNotEmpty
           ? panel.synthesisPrompt
-          : '你是一位兼听则明总结助手。以下是多位 AI 对同一个问题的回答。请仔细分析所有回答，找出其中的共同点和分歧，纠正明显的错误，然后给出一个全面、准确、综合的最终答案。',
+          : '你是一位兼听则明的总结助手。以下是多位 AI 对同一个问题的回答。请仔细分析所有回答，找出共同点和分歧，纠正明显错误，然后给出一个全面、准确、综合的最终答案。',
     );
     gatewayHistory.insert(0, systemMsg);
 
@@ -812,14 +859,14 @@ class ChatNotifier extends StateNotifier<ChatState> {
         return;
       }
       await _messageDao.updateContent(
-          conversationId, gatewayPlaceholder.id, '综合失败: ${e.message}');
+          conversationId, gatewayPlaceholder.id, '缁煎悎澶辫触: ${e.message}');
       try {
         state = ChatState(
           messages: _updateMessageInState(
-              gatewayPlaceholder.id, '综合失败: ${e.message}'),
+              gatewayPlaceholder.id, '缁煎悎澶辫触: ${e.message}'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
-          errorMessage: '网关综合失败: ${e.message}',
+          errorMessage: '缃戝叧缁煎悎澶辫触: ${e.message}',
         );
       } catch (_) {}
     } catch (e) {
@@ -828,13 +875,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
         return;
       }
       await _messageDao.updateContent(
-          conversationId, gatewayPlaceholder.id, '综合失败: $e');
+          conversationId, gatewayPlaceholder.id, '缁煎悎澶辫触: $e');
       try {
         state = ChatState(
-          messages: _updateMessageInState(gatewayPlaceholder.id, '综合失败: $e'),
+          messages: _updateMessageInState(gatewayPlaceholder.id, '缁煎悎澶辫触: $e'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
-          errorMessage: '网关综合失败: $e',
+          errorMessage: '缃戝叧缁煎悎澶辫触: $e',
         );
       } catch (_) {}
     }

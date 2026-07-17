@@ -3,11 +3,16 @@ import 'package:flutter/material.dart';
 
 enum CompanionMood { idle, thinking, streaming, sleeping, happy, surprised }
 
+enum CompanionVisualStyle { codex, hanLi }
+
 class CompanionCharacter extends StatefulWidget {
   final CompanionMood mood;
   final Color color;
+  final Color accentColor;
   final double size;
   final String? name;
+  final bool showName;
+  final CompanionVisualStyle visualStyle;
   final GestureDragUpdateCallback? onDragUpdate;
   final GestureDragEndCallback? onDragEnd;
 
@@ -15,8 +20,11 @@ class CompanionCharacter extends StatefulWidget {
     super.key,
     this.mood = CompanionMood.idle,
     this.color = const Color(0xFF6366F1),
+    this.accentColor = const Color(0xFF8B5CF6),
     this.size = 70,
     this.name,
+    this.showName = true,
+    this.visualStyle = CompanionVisualStyle.codex,
     this.onDragUpdate,
     this.onDragEnd,
   });
@@ -117,13 +125,15 @@ class _CompanionCharacterState extends State<CompanionCharacter>
               child: CustomPaint(
                 painter: _CharacterPainter(
                   color: widget.color,
+                  accentColor: widget.accentColor,
                   mood: _currentMood,
                   breathScale: breath,
                   blinkValue: _blinkCtrl.value,
                   armWave: _armCtrl.isAnimating
                       ? math.sin(_armCtrl.value * math.pi * 2) * 0.6
                       : 0.0,
-                  name: widget.name,
+                  name: widget.showName ? widget.name : null,
+                  visualStyle: widget.visualStyle,
                 ),
               ),
             ),
@@ -136,19 +146,23 @@ class _CompanionCharacterState extends State<CompanionCharacter>
 
 class _CharacterPainter extends CustomPainter {
   final Color color;
+  final Color accentColor;
   final CompanionMood mood;
   final double breathScale;
   final double blinkValue;
   final double armWave;
   final String? name;
+  final CompanionVisualStyle visualStyle;
 
   _CharacterPainter({
     required this.color,
+    required this.accentColor,
     required this.mood,
     required this.breathScale,
     required this.blinkValue,
     required this.armWave,
     this.name,
+    required this.visualStyle,
   });
 
   @override
@@ -166,6 +180,12 @@ class _CharacterPainter extends CustomPainter {
         hsl.withLightness((hsl.lightness + 0.18).clamp(0.0, 1.0)).toColor();
     final dark =
         hsl.withLightness((hsl.lightness - 0.12).clamp(0.0, 1.0)).toColor();
+
+    if (visualStyle == CompanionVisualStyle.hanLi) {
+      _paintHanLi(canvas, size, cx, s, headR, headY, bodyY, bodyRx, bodyRy,
+          light, dark);
+      return;
+    }
 
     // Ground shadow
     canvas.drawOval(
@@ -388,9 +408,237 @@ class _CharacterPainter extends CustomPainter {
     }
   }
 
+  void _paintHanLi(
+    Canvas canvas,
+    Size size,
+    double cx,
+    double s,
+    double headR,
+    double headY,
+    double bodyY,
+    double bodyRx,
+    double bodyRy,
+    Color light,
+    Color dark,
+  ) {
+    final robe = color;
+    final robeDark =
+        HSLColor.fromColor(robe).withLightness(0.24).toColor();
+    final skin = const Color(0xFFFFD9B3);
+    final hair = const Color(0xFF161616);
+    final auraPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.018
+      ..color = accentColor.withValues(alpha: 0.32);
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx, size.height * 0.96),
+        width: s * 0.56,
+        height: s * 0.05,
+      ),
+      Paint()..color = robeDark.withValues(alpha: 0.2),
+    );
+
+    if (mood == CompanionMood.streaming || mood == CompanionMood.happy) {
+      canvas.drawCircle(Offset(cx, bodyY), s * 0.46, auraPaint);
+      canvas.drawCircle(
+        Offset(cx, bodyY),
+        s * 0.36,
+        auraPaint..color = accentColor.withValues(alpha: 0.22),
+      );
+    }
+
+    final swordPaint = Paint()
+      ..color = const Color(0xFFC9D4DD)
+      ..strokeWidth = s * 0.028
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(cx + s * 0.25, bodyY - s * 0.18),
+      Offset(cx + s * 0.42, bodyY + s * 0.34),
+      swordPaint,
+    );
+    canvas.drawLine(
+      Offset(cx + s * 0.23, bodyY - s * 0.1),
+      Offset(cx + s * 0.33, bodyY - s * 0.13),
+      Paint()
+        ..color = accentColor
+        ..strokeWidth = s * 0.02
+        ..strokeCap = StrokeCap.round,
+    );
+
+    canvas.save();
+    canvas.translate(cx, bodyY);
+    canvas.scale(breathScale);
+    final robePath = Path()
+      ..moveTo(-bodyRx * 0.95, -bodyRy * 0.55)
+      ..quadraticBezierTo(0, -bodyRy * 1.15, bodyRx * 0.95, -bodyRy * 0.55)
+      ..lineTo(bodyRx * 1.3, bodyRy * 1.95)
+      ..quadraticBezierTo(0, bodyRy * 2.35, -bodyRx * 1.3, bodyRy * 1.95)
+      ..close();
+    canvas.drawPath(
+      robePath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [light, robe, robeDark],
+        ).createShader(Rect.fromCenter(
+          center: Offset.zero,
+          width: bodyRx * 3,
+          height: bodyRy * 4,
+        )),
+    );
+    canvas.drawLine(
+      Offset(-bodyRx * 0.6, -bodyRy * 0.25),
+      Offset(bodyRx * 0.78, bodyRy * 1.45),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.22)
+        ..strokeWidth = s * 0.024
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(
+      Offset(0, bodyRy * 0.72),
+      s * 0.035,
+      Paint()..color = accentColor,
+    );
+    canvas.restore();
+
+    final armPaint = Paint()
+      ..color = robe
+      ..strokeWidth = s * 0.052
+      ..strokeCap = StrokeCap.round;
+    final armLift = mood == CompanionMood.thinking ? -0.16 : 0.0;
+    canvas.drawLine(
+      Offset(cx - bodyRx * 0.86, bodyY - bodyRy * 0.2),
+      Offset(cx - bodyRx * 1.35, bodyY + bodyRy * (0.62 + armLift)),
+      armPaint,
+    );
+    canvas.drawLine(
+      Offset(cx + bodyRx * 0.82, bodyY - bodyRy * 0.2),
+      Offset(cx + bodyRx * 1.26, bodyY + bodyRy * (0.56 - armWave * 0.2)),
+      armPaint,
+    );
+
+    canvas.save();
+    canvas.translate(cx, headY);
+    canvas.scale(breathScale);
+    canvas.drawCircle(Offset(0, -headR * 0.88), headR * 0.18,
+        Paint()..color = hair);
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(0, -headR * 0.12),
+          width: headR * 1.78,
+          height: headR * 1.94),
+      Paint()..color = hair,
+    );
+    canvas.drawCircle(Offset.zero, headR * 0.78, Paint()..color = skin);
+    canvas.drawArc(
+      Rect.fromCenter(
+          center: Offset(0, -headR * 0.08),
+          width: headR * 1.62,
+          height: headR * 1.35),
+      math.pi,
+      math.pi,
+      false,
+      Paint()
+        ..color = hair
+        ..strokeWidth = headR * 0.38
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(
+      Offset(-headR * 0.2, -headR * 0.1),
+      headR * 0.22,
+      Paint()..color = Colors.white.withValues(alpha: 0.08),
+    );
+
+    _paintEyesAndMouth(canvas, headR);
+    canvas.restore();
+
+    if (name != null && name!.isNotEmpty) {
+      _paintNameTag(canvas, size, cx, s);
+    }
+  }
+
+  void _paintEyesAndMouth(Canvas canvas, double headR) {
+    final eyeY = -headR * 0.02;
+    final eyeX = headR * 0.28;
+    final eyeR = headR * 0.08;
+    final eyePaint = Paint()..color = const Color(0xFF20202A);
+
+    if (mood == CompanionMood.sleeping) {
+      final ep = Paint()
+        ..color = const Color(0xFF20202A)
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+          Offset(-eyeX - eyeR, eyeY), Offset(-eyeX + eyeR, eyeY), ep);
+      canvas.drawLine(Offset(eyeX - eyeR, eyeY), Offset(eyeX + eyeR, eyeY), ep);
+    } else {
+      final eyeH = eyeR * (1.0 - blinkValue);
+      if (eyeH > 0.5) {
+        canvas.drawOval(
+            Rect.fromCenter(
+                center: Offset(-eyeX, eyeY), width: eyeR * 1.5, height: eyeH * 2),
+            eyePaint);
+        canvas.drawOval(
+            Rect.fromCenter(
+                center: Offset(eyeX, eyeY), width: eyeR * 1.5, height: eyeH * 2),
+            eyePaint);
+      }
+    }
+
+    final mouthPaint = Paint()
+      ..color = const Color(0xFF9A4E3F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    final mouthY = headR * 0.34;
+    if (mood == CompanionMood.surprised) {
+      canvas.drawCircle(Offset(0, mouthY), headR * 0.06,
+          Paint()..color = const Color(0xFF9A4E3F));
+    } else {
+      canvas.drawArc(
+        Rect.fromCenter(
+            center: Offset(0, mouthY - 1),
+            width: headR * 0.28,
+            height: headR * 0.18),
+        0.12 * math.pi,
+        0.76 * math.pi,
+        false,
+        mouthPaint,
+      );
+    }
+  }
+
+  void _paintNameTag(Canvas canvas, Size size, double cx, double s) {
+    final tp = TextPainter(
+      text: TextSpan(
+          text: name,
+          style: TextStyle(
+              color: Colors.white,
+              fontSize: s * 0.12,
+              fontWeight: FontWeight.w700)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final tagX = cx - tp.width / 2;
+    final tagY = s * 0.02;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(tagX - 6, tagY, tp.width + 12, tp.height + 5),
+          const Radius.circular(8)),
+      Paint()..color = const Color(0xFF111827).withValues(alpha: 0.68),
+    );
+    tp.paint(canvas, Offset(tagX, tagY + 2));
+  }
+
   @override
   bool shouldRepaint(_CharacterPainter old) =>
       old.mood != mood ||
+      old.color != color ||
+      old.accentColor != accentColor ||
+      old.visualStyle != visualStyle ||
+      old.name != name ||
       old.breathScale != breathScale ||
       old.blinkValue != blinkValue ||
       old.armWave != armWave;

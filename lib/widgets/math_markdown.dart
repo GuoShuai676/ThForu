@@ -214,7 +214,9 @@ class _TableBlock extends StatelessWidget {
     final headerBg = theme.colorScheme.primaryContainer.withValues(alpha: 0.18);
 
     return Table(
-      defaultColumnWidth: const IntrinsicColumnWidth(),
+      columnWidths: {
+        for (int i = 0; i < colCount; i++) i: const IntrinsicColumnWidth(),
+      },
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
       border: TableBorder(
         horizontalInside: BorderSide(
@@ -274,14 +276,61 @@ class _TableBlock extends StatelessWidget {
         const TextStyle(fontSize: 14);
 
     final table = _buildTable(theme, baseStyle);
+    final surface = theme.colorScheme.surface.withValues(alpha: 0.72);
+    final border = theme.colorScheme.outlineVariant.withValues(alpha: 0.6);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: GestureDetector(
-        onTap: () => _showTableFullscreen(context, theme, baseStyle),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: table,
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 6, 2),
+              child: Row(
+                children: [
+                  Icon(Icons.table_chart_outlined,
+                      size: 15, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '表格',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '放大查看',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.open_in_full, size: 16),
+                    onPressed: () =>
+                        _showTableFullscreen(context, theme, baseStyle),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => _showTableFullscreen(context, theme, baseStyle),
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                  child: table,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -296,7 +345,7 @@ class _TableBlock extends StatelessWidget {
         builder: (_) => Scaffold(
           backgroundColor: theme.colorScheme.surface,
           appBar: AppBar(
-            title: const Text('表格 — 双指缩放'),
+            title: const Text('表格'),
             actions: [
               IconButton(
                 icon: const Icon(Icons.close),
@@ -309,13 +358,14 @@ class _TableBlock extends StatelessWidget {
           ),
           body: SafeArea(
             child: InteractiveViewer(
-              minScale: 0.15,
-              maxScale: 10.0,
+              minScale: 0.2,
+              maxScale: 8.0,
+              boundaryMargin: const EdgeInsets.all(120),
               child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: FittedBox(
-                    fit: BoxFit.contain,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
                     child: _buildTable(theme, baseStyle),
                   ),
                 ),
@@ -1627,11 +1677,57 @@ class _DisplayMathBox extends ConsumerWidget {
     }
 
     // Directly embedded — no fancy card, just the formula itself
+    final surface = theme.colorScheme.surface.withValues(alpha: 0.7);
+    final border = theme.colorScheme.outlineVariant.withValues(alpha: 0.58);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: GestureDetector(
-        onTap: () => FormulaViewer.show(context, formula, displayMode),
-        child: Center(child: _buildMath(theme, displayMode)),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 6, 0),
+              child: Row(
+                children: [
+                  Icon(Icons.functions,
+                      size: 15, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '公式',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '放大查看',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.open_in_full, size: 16),
+                    onPressed: () =>
+                        FormulaViewer.show(context, formula, displayMode),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => FormulaViewer.show(context, formula, displayMode),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
+                child: _buildMath(theme, displayMode),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1646,10 +1742,20 @@ class _DisplayMathBox extends ConsumerWidget {
         mathStyle: MathStyle.display,
       );
       return switch (mode) {
-        FormulaDisplayMode.scroll => SingleChildScrollView(
-            scrollDirection: Axis.horizontal, child: mathWidget),
-        FormulaDisplayMode.scale =>
-          FittedBox(fit: BoxFit.scaleDown, child: mathWidget),
+        FormulaDisplayMode.scroll => Scrollbar(
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: mathWidget,
+              ),
+            ),
+          ),
+        FormulaDisplayMode.scale => Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(fit: BoxFit.scaleDown, child: mathWidget),
+          ),
         _ => SingleChildScrollView(
             scrollDirection: Axis.horizontal, child: mathWidget),
       };

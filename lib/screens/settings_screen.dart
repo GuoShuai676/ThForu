@@ -4,9 +4,11 @@ import '../models/expert_panel.dart';
 import '../models/provider_config.dart';
 import '../state/providers.dart';
 import '../state/formula_display_notifier.dart';
+import '../models/companion_config.dart';
 import '../widgets/provider_form_dialog.dart';
 import '../widgets/expert_panel_form_dialog.dart';
 import '../widgets/persona_form_dialog.dart';
+import '../widgets/companion_character.dart';
 import '../models/persona.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -129,6 +131,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
+          _buildCompanionSection(context, ref, theme),
 
           const SizedBox(height: 24),
           // -- AI 大模型配置 --
@@ -372,6 +375,209 @@ class SettingsScreen extends ConsumerWidget {
       'delete_sandbox' => '允许删除沙箱',
       _ => perm,
     };
+  }
+
+  Widget _buildCompanionSection(
+      BuildContext context, WidgetRef ref, ThemeData theme) {
+    final config = ref.watch(companionConfigProvider);
+    final notifier = ref.read(companionConfigProvider.notifier);
+    const colors = [
+      Color(0xFF2F7D57),
+      Color(0xFF4F46E5),
+      Color(0xFF0EA5E9),
+      Color(0xFF7C3AED),
+      Color(0xFFB45309),
+      Color(0xFFBE123C),
+      Color(0xFF374151),
+    ];
+    const accents = [
+      Color(0xFFD6A84F),
+      Color(0xFF22D3EE),
+      Color(0xFFF97316),
+      Color(0xFFA7F3D0),
+      Color(0xFFFDE68A),
+      Color(0xFFF9A8D4),
+      Color(0xFFE5E7EB),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 96,
+                    height: 132,
+                    child: Center(
+                      child: CompanionCharacter(
+                        mood: CompanionMood.idle,
+                        color: config.primary,
+                        accentColor: config.accent,
+                        size: 76,
+                        name: config.name,
+                        showName: config.showName,
+                        visualStyle: config.style == CompanionStyle.hanLi
+                            ? CompanionVisualStyle.hanLi
+                            : CompanionVisualStyle.codex,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('助手宠物', style: theme.textTheme.titleSmall),
+                        const SizedBox(height: 4),
+                        Text(
+                          '在聊天页陪伴、显示状态，并可拖动停靠。',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  _editCompanionName(context, config.name, ref),
+                              icon: const Icon(Icons.badge_outlined),
+                              label: Text(config.name),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => notifier.resetHanLi(),
+                              icon: const Icon(Icons.auto_fix_high),
+                              label: const Text('恢复韩立'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示宠物'),
+                value: config.enabled,
+                onChanged: notifier.setEnabled,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示名字'),
+                value: config.showName,
+                onChanged: notifier.setShowName,
+              ),
+              const SizedBox(height: 8),
+              Text('造型', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 8),
+              SegmentedButton<CompanionStyle>(
+                segments: const [
+                  ButtonSegment(
+                    value: CompanionStyle.hanLi,
+                    label: Text('韩立'),
+                    icon: Icon(Icons.self_improvement),
+                  ),
+                  ButtonSegment(
+                    value: CompanionStyle.codex,
+                    label: Text('Codex'),
+                    icon: Icon(Icons.smart_toy_outlined),
+                  ),
+                ],
+                selected: {config.style},
+                onSelectionChanged: (sel) => notifier.setStyle(sel.first),
+              ),
+              const SizedBox(height: 16),
+              Text('主色', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                children: colors.map((color) {
+                  return _ColorDot(
+                    color: color,
+                    selected: color.toARGB32() == config.primaryColor,
+                    onTap: () => notifier.setPrimaryColor(color.toARGB32()),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Text('点缀色', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                children: accents.map((color) {
+                  return _ColorDot(
+                    color: color,
+                    selected: color.toARGB32() == config.accentColor,
+                    onTap: () => notifier.setAccentColor(color.toARGB32()),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Text('大小', style: theme.textTheme.labelMedium),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Slider(
+                      min: 56,
+                      max: 96,
+                      divisions: 8,
+                      value: config.size.clamp(56, 96).toDouble(),
+                      onChanged: notifier.setSize,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editCompanionName(
+      BuildContext context, String currentName, WidgetRef ref) async {
+    final controller = TextEditingController(text: currentName);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('宠物名字'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '名字',
+            hintText: '例如：韩立',
+          ),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result != null) {
+      await ref.read(companionConfigProvider.notifier).setName(result);
+    }
   }
 
   void _confirmDelete(BuildContext context, WidgetRef ref, String id) {
@@ -665,6 +871,52 @@ class SettingsScreen extends ConsumerWidget {
             child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ColorDot extends StatelessWidget {
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ColorDot({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: '#${color.toARGB32().toRadixString(16).padLeft(8, '0')}',
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected ? theme.colorScheme.onSurface : Colors.white,
+              width: selected ? 3 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: selected
+              ? const Icon(Icons.check, color: Colors.white, size: 18)
+              : null,
+        ),
       ),
     );
   }

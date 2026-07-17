@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'terminal_policy.dart';
 
@@ -32,20 +33,16 @@ class TerminalResult {
 }
 
 class TerminalRunner {
+  final String _root;
   String _cwd;
   TerminalPolicy _policy;
-  Process? _shell;
-  StreamSubscription? _stdoutSub;
-  StreamSubscription? _stderrSub;
-  Completer<String>? _outputCompleter;
-  String _pendingStdout = '';
-  String _pendingStderr = '';
-  bool _shellReady = false;
 
   TerminalRunner({
     String? cwd,
+    String? root,
     TerminalPolicy policy = const TerminalPolicy(),
-  })  : _cwd = cwd ?? '',
+  })  : _root = p.normalize(root ?? cwd ?? ''),
+        _cwd = p.normalize(cwd ?? root ?? ''),
         _policy = policy;
 
   String get cwd => _cwd;
@@ -56,61 +53,31 @@ class TerminalRunner {
     TerminalPolicy policy = const TerminalPolicy(),
   }) async {
     final docsDir = await getApplicationDocumentsDirectory();
-    final runner = TerminalRunner(cwd: docsDir.path, policy: policy);
-    if (policy.mode == TerminalMode.fullShell) {
-      await runner._startShell();
-    }
+    await docsDir.create(recursive: true);
+    final runner =
+        TerminalRunner(root: docsDir.path, cwd: docsDir.path, policy: policy);
     return runner;
   }
 
-  Future<void> _startShell() async {
-    try {
-      if (Platform.isWindows) {
-        _shell = await Process.start('cmd', [], workingDirectory: _cwd);
-      } else if (Platform.isAndroid) {
-        if (File('/system/bin/sh').existsSync()) {
-          _shell =
-              await Process.start('/system/bin/sh', [], workingDirectory: _cwd);
-        } else {
-          return;
-        }
-      } else if (Platform.isIOS) {
-        return;
-      } else {
-        _shell = await Process.start('/bin/sh', [], workingDirectory: _cwd);
-      }
-      _stdoutSub = _shell!.stdout
-          .transform(const SystemEncoding().decoder)
-          .listen((data) {
-        _pendingStdout += data;
-        _outputCompleter?.complete(_pendingStdout);
-      });
-      _stderrSub = _shell!.stderr
-          .transform(const SystemEncoding().decoder)
-          .listen((data) {
-        _pendingStderr += data;
-      });
-      _shellReady = true;
-    } catch (_) {
-      _shellReady = false;
-    }
-  }
-
   Future<void> updatePolicy(TerminalPolicy newPolicy) async {
-    final oldMode = _policy.mode;
     _policy = newPolicy;
-    if (newPolicy.mode != oldMode) {
-      await dispose();
-      if (newPolicy.mode == TerminalMode.fullShell) {
-        await _startShell();
-      }
-    }
   }
 
   Future<TerminalResult> run(String command,
       {Duration timeout = const Duration(seconds: 30)}) async {
     final startedAt = DateTime.now();
     final trimmed = command.trim();
+
+    if (trimmed.isEmpty) {
+      return TerminalResult(
+        command: command,
+        cwd: _cwd,
+        stderr: 'Empty command',
+        exitCode: 1,
+        startedAt: startedAt,
+        endedAt: DateTime.now(),
+      );
+    }
 
     if (_policy.isBlocked(trimmed)) {
       return TerminalResult(
@@ -128,7 +95,7 @@ class TerminalRunner {
     final cmd = parts.first;
     final args = parts.skip(1).toList();
 
-    if (_policy.mode == TerminalMode.sandboxOnly || !_shellReady) {
+    if (_policy.mode == TerminalMode.sandboxOnly) {
       return _runBuiltin(cmd, args, trimmed, startedAt, timeout);
     }
 
@@ -200,18 +167,23 @@ class TerminalRunner {
 
   TerminalResult _builtinCd(
       List<String> args, String fullCmd, DateTime startedAt) {
-    String target;
-    if (args.isEmpty) {
-      target = Directory(_cwd).parent.path;
-    } else {
-      target = _resolvePath(args.first);
-    }
-    if (Directory(target).existsSync()) {
-      _cwd = target;
+    try {
+      final target = args.isEmpty ? _resolvePath('..') : _resolvePath(args.first);
+      if (Directory(target).existsSync()) {
+        _cwd = target;
+        return TerminalResult(
+            command: fullCmd,
+            cwd: _cwd,
+            stdout: _cwd,
+            startedAt: startedAt,
+            endedAt: DateTime.now());
+      }
+    } catch (e) {
       return TerminalResult(
           command: fullCmd,
           cwd: _cwd,
-          stdout: _cwd,
+          stderr: 'cd: $e',
+          exitCode: 1,
           startedAt: startedAt,
           endedAt: DateTime.now());
     }
@@ -443,43 +415,16 @@ class TerminalRunner {
 
   Future<TerminalResult> _runShell(
       String command, DateTime startedAt, Duration timeout) async {
-    if (_shellReady && _shell != null) {
-      _pendingStdout = '';
-      _pendingStderr = '';
-      _outputCompleter = Completer<String>();
-      _shell!.stdin.writeln(command);
-      try {
-        await _outputCompleter!.future.timeout(timeout);
-        await Future.delayed(const Duration(milliseconds: 200));
-        return TerminalResult(
-          command: command,
-          cwd: _cwd,
-          stdout: _pendingStdout.trimRight(),
-          stderr: _pendingStderr.trimRight(),
-          exitCode: 0,
-          startedAt: startedAt,
-          endedAt: DateTime.now(),
-        );
-      } on TimeoutException {
-        return TerminalResult(
-          command: command,
-          cwd: _cwd,
-          stdout: _pendingStdout.trimRight(),
-          stderr: 'Command timed out after ${timeout.inSeconds}s',
-          exitCode: 124,
-          timedOut: true,
-          startedAt: startedAt,
-          endedAt: DateTime.now(),
-        );
-      }
-    }
-
     try {
       ProcessResult result;
       if (Platform.isWindows) {
         result =
             await Process.run('cmd', ['/c', command], workingDirectory: _cwd)
                 .timeout(timeout);
+      } else if (Platform.isAndroid) {
+        result = await Process.run('/system/bin/sh', ['-c', command],
+                workingDirectory: _cwd)
+            .timeout(timeout);
       } else {
         result = await Process.run('/bin/sh', ['-c', command],
                 workingDirectory: _cwd)
@@ -517,23 +462,36 @@ class TerminalRunner {
   }
 
   String _resolvePath(String path) {
+    String resolved;
     if (path.startsWith('~')) {
-      return _cwd + path.substring(1);
+      resolved = p.join(_root, path.substring(1));
+    } else if (p.isAbsolute(path)) {
+      resolved = path;
+    } else {
+      resolved = p.join(_cwd, path);
     }
-    if (path.startsWith('/') || (path.length > 1 && path[1] == ':')) {
-      return path;
+    final normalized = p.normalize(resolved);
+    if (!_isInsideRoot(normalized)) {
+      throw FileSystemException('path is outside terminal sandbox', path);
     }
-    if (path == '..') {
-      return Directory(_cwd).parent.path;
-    }
-    return '$_cwd${Platform.pathSeparator}$path';
+    return normalized;
   }
 
-  Future<void> dispose() async {
-    await _stdoutSub?.cancel();
-    await _stderrSub?.cancel();
-    _shell?.kill();
-    _shell = null;
-    _shellReady = false;
+  bool _isInsideRoot(String path) {
+    final normalizedRoot = p.normalize(_root);
+    final normalizedPath = p.normalize(path);
+    final rootWithSeparator = normalizedRoot.endsWith(p.separator)
+        ? normalizedRoot
+        : '$normalizedRoot${p.separator}';
+    if (Platform.isWindows) {
+      final lowerRoot = normalizedRoot.toLowerCase();
+      final lowerRootWithSeparator = rootWithSeparator.toLowerCase();
+      final lowerPath = normalizedPath.toLowerCase();
+      return lowerPath == lowerRoot || lowerPath.startsWith(lowerRootWithSeparator);
+    }
+    return normalizedPath == normalizedRoot ||
+        normalizedPath.startsWith(rootWithSeparator);
   }
+
+  Future<void> dispose() async {}
 }

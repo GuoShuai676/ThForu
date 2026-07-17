@@ -10,6 +10,8 @@ import '../models/expert_panel.dart';
 import '../models/persona.dart';
 import '../tools/tool_registry.dart';
 import '../tools/tool_executor.dart';
+import '../tools/terminal_tool.dart';
+import '../services/terminal/terminal_policy.dart';
 import 'provider_list_notifier.dart';
 import 'expert_panel_list_notifier.dart';
 import 'conversation_list_notifier.dart';
@@ -22,10 +24,27 @@ import 'terminal_notifier.dart';
 import 'terminal_state.dart';
 import 'tool_settings_notifier.dart';
 import 'skill_list_notifier.dart';
+import 'companion_config_notifier.dart';
 import '../models/tool_settings.dart';
 import '../models/skill.dart';
+import '../models/companion_config.dart';
 
 final routeObserver = RouteObserver<ModalRoute>();
+
+TerminalPolicy terminalPolicyFromSettings(ToolSettings settings) {
+  final permissions = <TerminalPermission>{};
+  if (settings.terminalPermission == 'write_sandbox') {
+    permissions.add(TerminalPermission.writeSandbox);
+  } else if (settings.terminalPermission == 'delete_sandbox') {
+    permissions
+      ..add(TerminalPermission.writeSandbox)
+      ..add(TerminalPermission.deleteSandbox);
+  }
+  return TerminalPolicy(
+    mode: TerminalMode.sandboxOnly,
+    permissions: permissions,
+  );
+}
 
 final conversationDaoProvider = Provider<ConversationDao>((ref) {
   return ConversationDao();
@@ -41,11 +60,17 @@ final memoryDaoProvider = Provider<MemoryDao>((ref) {
 
 final toolRegistryProvider = Provider<ToolRegistry>((ref) {
   final memoryDao = ref.watch(memoryDaoProvider);
-  return ToolRegistry(memoryDao);
+  final settings = ref.watch(toolSettingsProvider);
+  return ToolRegistry(
+    memoryDao,
+    enabledTools: settings.toolsEnabled ? settings.enabledTools : <String>{},
+  );
 });
 
 final toolExecutorProvider = Provider<ToolExecutor>((ref) {
   final memoryDao = ref.watch(memoryDaoProvider);
+  final settings = ref.watch(toolSettingsProvider);
+  TerminalTool.updatePolicy(terminalPolicyFromSettings(settings));
   return ToolExecutor(memoryDao);
 });
 
@@ -140,8 +165,9 @@ final personaListProvider =
 
 final terminalProvider =
     StateNotifierProvider<TerminalNotifier, TerminalState>((ref) {
+  final settings = ref.watch(toolSettingsProvider);
   final notifier = TerminalNotifier();
-  notifier.init();
+  notifier.init(policy: terminalPolicyFromSettings(settings));
   return notifier;
 });
 
@@ -153,4 +179,9 @@ final toolSettingsProvider =
 final skillListProvider =
     StateNotifierProvider<SkillListNotifier, List<Skill>>((ref) {
   return SkillListNotifier();
+});
+
+final companionConfigProvider =
+    StateNotifierProvider<CompanionConfigNotifier, CompanionConfig>((ref) {
+  return CompanionConfigNotifier();
 });

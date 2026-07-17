@@ -1,12 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:permission_handler/permission_handler.dart';
 
 /// SVG viewer widget with thumbnail, fullscreen view, and download.
 class SvgBlock extends StatefulWidget {
@@ -18,52 +15,31 @@ class SvgBlock extends StatefulWidget {
 }
 
 class _SvgBlockState extends State<SvgBlock> {
-  ui.Image? _image;
+  Size? _svgSize;
   bool _failed = false;
 
   @override
   void initState() {
     super.initState();
-    _render();
+    _inspectSvg();
   }
 
-  Future<void> _render() async {
+  Future<void> _inspectSvg() async {
     try {
       final pictureInfo = await vg.loadPicture(
         SvgStringLoader(widget.svgString),
         null,
       );
       final svgSize = pictureInfo.size;
+      pictureInfo.picture.dispose();
       if (svgSize.width <= 0 || svgSize.height <= 0) {
-        pictureInfo.picture.dispose();
         if (mounted) setState(() => _failed = true);
         return;
       }
-
-      // Thumbnail: max 280px wide, maintain aspect ratio
-      final maxW = 280.0;
-      final scale = maxW / svgSize.width;
-      final w = (svgSize.width * scale).round();
-      final h = (svgSize.height * scale).round();
-
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      canvas.scale(scale, scale);
-      canvas.drawPicture(pictureInfo.picture);
-      final picture = recorder.endRecording();
-      final img = await picture.toImage(w, h);
-      pictureInfo.picture.dispose();
-      picture.dispose();
-      if (mounted) setState(() => _image = img);
+      if (mounted) setState(() => _svgSize = svgSize);
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }
-  }
-
-  @override
-  void dispose() {
-    _image?.dispose();
-    super.dispose();
   }
 
   void _openFullscreen() {
@@ -77,7 +53,6 @@ class _SvgBlockState extends State<SvgBlock> {
 
   Future<void> _downloadSvg() async {
     try {
-      final bytes = Uint8List.fromList(widget.svgString.codeUnits);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
       if (Platform.isAndroid) {
@@ -130,19 +105,19 @@ class _SvgBlockState extends State<SvgBlock> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
               Icon(Icons.auto_awesome,
                   size: 13,
                   color: _failed
                       ? theme.colorScheme.error
                       : theme.colorScheme.primary),
               const SizedBox(width: 5),
-              Text(_failed ? 'SVG (解析失败)' : 'SVG',
+              Text(_failed ? 'SVG 解析失败' : 'SVG 图片',
                   style: theme.textTheme.labelSmall?.copyWith(
                       color: _failed
                           ? theme.colorScheme.error
                           : theme.colorScheme.primary)),
-              if (_image != null) ...[
+              if (_svgSize != null) ...[
                 const Spacer(),
                 GestureDetector(
                   onTap: _openFullscreen,
@@ -170,16 +145,36 @@ class _SvgBlockState extends State<SvgBlock> {
               ],
             ]),
             const SizedBox(height: 8),
-            if (_image != null)
-              GestureDetector(
-                onTap: _openFullscreen,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: RawImage(image: _image),
-                  ),
-                ),
+            if (_svgSize != null)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final aspect = (_svgSize!.width / _svgSize!.height)
+                      .clamp(0.25, 4.0)
+                      .toDouble();
+                  final availableWidth = constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : MediaQuery.of(context).size.width * 0.8;
+                  final height =
+                      (availableWidth / aspect).clamp(120.0, 360.0).toDouble();
+                  return GestureDetector(
+                    onTap: _openFullscreen,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        width: double.infinity,
+                        height: height,
+                        color: Colors.white,
+                        alignment: Alignment.center,
+                        child: SvgPicture.string(
+                          widget.svgString,
+                          fit: BoxFit.contain,
+                          width: availableWidth,
+                          height: height,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               )
             else if (_failed)
               _sourceView(theme)
@@ -217,65 +212,10 @@ class _SvgBlockState extends State<SvgBlock> {
 }
 
 /// Fullscreen SVG viewer — renders at screen resolution, pinch-to-zoom.
-class _SvgViewer extends StatefulWidget {
+class _SvgViewer extends StatelessWidget {
   final String svgString;
   const _SvgViewer({required this.svgString});
 
-  @override
-  State<_SvgViewer> createState() => _SvgViewerState();
-}
-
-class _SvgViewerState extends State<_SvgViewer> {
-  ui.Image? _image;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _render();
-  }
-
-  Future<void> _render() async {
-    try {
-      final pictureInfo = await vg.loadPicture(
-        SvgStringLoader(widget.svgString),
-        null,
-      );
-      final svgSize = pictureInfo.size;
-      if (svgSize.width <= 0 || svgSize.height <= 0) {
-        pictureInfo.picture.dispose();
-        if (mounted) setState(() => _failed = true);
-        return;
-      }
-      // Render at 2x screen width for sharp zoom
-      final screenW = MediaQueryData.fromView(
-              WidgetsBinding.instance.platformDispatcher.views.first)
-          .size
-          .width;
-      final maxW = screenW * 2;
-      final scale = maxW / svgSize.width;
-      final w = (svgSize.width * scale).round();
-      final h = (svgSize.height * scale).round();
-
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      canvas.scale(scale, scale);
-      canvas.drawPicture(pictureInfo.picture);
-      final picture = recorder.endRecording();
-      final img = await picture.toImage(w, h);
-      pictureInfo.picture.dispose();
-      picture.dispose();
-      if (mounted) setState(() => _image = img);
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _image?.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -290,24 +230,22 @@ class _SvgViewerState extends State<_SvgViewer> {
           ),
         ],
       ),
-      body: _image != null
-          ? InteractiveViewer(
-              maxScale: 10.0,
-              minScale: 0.1,
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: SizedBox(
-                    width: _image!.width.toDouble(),
-                    height: _image!.height.toDouble(),
-                    child: RawImage(image: _image),
-                  ),
-                ),
+      body: SafeArea(
+        child: InteractiveViewer(
+              maxScale: 12.0,
+              minScale: 0.2,
+              boundaryMargin: const EdgeInsets.all(160),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: SvgPicture.string(
+                svgString,
+                fit: BoxFit.contain,
               ),
-            )
-          : _failed
-              ? const Center(child: Text('SVG 解析失败'))
-              : const Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

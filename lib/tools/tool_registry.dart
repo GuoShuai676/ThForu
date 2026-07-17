@@ -29,6 +29,16 @@ class ToolRegistry {
   List<Map<String, dynamic>> get openAiTools =>
       enabledDefinitions.map((t) => t.toOpenAITool()).toList();
 
+  Set<String> get enabledToolNames => Set.unmodifiable(_enabledTools);
+
+  List<Map<String, dynamic>> openAiToolsFor(Set<String> names) {
+    return names
+        .where(_enabledTools.contains)
+        .where(_allDefinitions.containsKey)
+        .map((name) => _allDefinitions[name]!.toOpenAITool())
+        .toList();
+  }
+
   bool get hasTools => _enabledTools.isNotEmpty;
 
   void enable(String name) => _enabledTools.add(name);

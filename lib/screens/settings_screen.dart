@@ -8,7 +8,8 @@ import '../models/companion_config.dart';
 import '../widgets/provider_form_dialog.dart';
 import '../widgets/expert_panel_form_dialog.dart';
 import '../widgets/persona_form_dialog.dart';
-import '../widgets/companion_character.dart';
+import '../widgets/pixel_companion/hanli_skin.dart';
+import '../widgets/pixel_companion/pixel_painter.dart';
 import '../models/persona.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -413,19 +414,17 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   SizedBox(
                     width: 96,
-                    height: 132,
-                    child: Center(
-                      child: CompanionCharacter(
-                        mood: CompanionMood.idle,
-                        color: config.primary,
-                        accentColor: config.accent,
-                        size: 76,
-                        name: config.name,
-                        showName: config.showName,
-                        visualStyle: config.style == CompanionStyle.hanLi
-                            ? CompanionVisualStyle.hanLi
-                            : CompanionVisualStyle.codex,
+                    height: 120,
+                    child: CustomPaint(
+                      painter: HanLiPainter(
+                        mood: PixelMood.idle,
+                        breathValue: 0.5,
+                        primaryColor: config.primaryColor,
+                        accentColor: config.accentColor,
+                        skinColor: config.skinColor,
+                        hairColor: config.hairColor,
                       ),
+                      size: const Size(76, 114),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -480,21 +479,21 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 8),
               Text('造型', style: theme.textTheme.labelMedium),
               const SizedBox(height: 8),
-              SegmentedButton<CompanionStyle>(
+              SegmentedButton<CompanionSkin>(
                 segments: const [
                   ButtonSegment(
-                    value: CompanionStyle.hanLi,
+                    value: CompanionSkin.hanLi,
                     label: Text('韩立'),
                     icon: Icon(Icons.self_improvement),
                   ),
                   ButtonSegment(
-                    value: CompanionStyle.codex,
+                    value: CompanionSkin.codex,
                     label: Text('Codex'),
                     icon: Icon(Icons.smart_toy_outlined),
                   ),
                 ],
-                selected: {config.style},
-                onSelectionChanged: (sel) => notifier.setStyle(sel.first),
+                selected: {config.skin},
+                onSelectionChanged: (sel) => notifier.setSkin(sel.first),
               ),
               const SizedBox(height: 16),
               Text('主色', style: theme.textTheme.labelMedium),

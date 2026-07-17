@@ -1,5 +1,4 @@
 ﻿import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -18,7 +17,8 @@ import '../widgets/chat_input_bar.dart';
 import '../widgets/expert_progress_widget.dart';
 import '../widgets/assistant_avatar.dart';
 import '../widgets/tool_execution_widget.dart';
-import '../widgets/companion_character.dart';
+import '../widgets/pixel_companion/pixel_companion.dart';
+import '../widgets/pixel_companion/pixel_painter.dart';
 import '../services/deep_search_service.dart';
 import '../services/word_generator.dart';
 
@@ -49,84 +49,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
   String? _lastSentFilePath;
   String? _lastSentFileName;
   bool _errorExpanded = false;
-  Offset? _companionPosition;
-
-  Offset _defaultCompanionPosition(
-    Size size,
-    EdgeInsets padding,
-    double companionWidth,
-    double companionHeight,
-  ) {
-    return Offset(
-      size.width - companionWidth - 12,
-      size.height - companionHeight - padding.bottom - 88,
-    );
-  }
-
-  Offset _clampCompanionPosition(
-    Offset position,
-    Size size,
-    EdgeInsets padding,
-    double companionWidth,
-    double companionHeight,
-  ) {
-    const margin = 8.0;
-    final minX = margin;
-    final minY = margin + padding.top;
-    final maxX = math.max(minX, size.width - companionWidth - margin);
-    final maxY = math.max(
-      minY,
-      size.height - companionHeight - padding.bottom - 76,
-    );
-    return Offset(
-      position.dx.clamp(minX, maxX).toDouble(),
-      position.dy.clamp(minY, maxY).toDouble(),
-    );
-  }
-
-  void _moveCompanion(
-    DragUpdateDetails details,
-    Size size,
-    EdgeInsets padding,
-    double companionWidth,
-    double companionHeight,
-  ) {
-    final current = _companionPosition ??
-        _defaultCompanionPosition(
-            size, padding, companionWidth, companionHeight);
-    setState(() {
-      _companionPosition = _clampCompanionPosition(
-        current + details.delta,
-        size,
-        padding,
-        companionWidth,
-        companionHeight,
-      );
-    });
-  }
-
-  void _dockCompanion(
-    Size size,
-    EdgeInsets padding,
-    double companionWidth,
-    double companionHeight,
-  ) {
-    final current = _companionPosition ??
-        _defaultCompanionPosition(
-            size, padding, companionWidth, companionHeight);
-    const margin = 12.0;
-    final dockLeft = current.dx + companionWidth / 2 < size.width / 2;
-    final targetX = dockLeft ? margin : size.width - companionWidth - margin;
-    setState(() {
-      _companionPosition = _clampCompanionPosition(
-        Offset(targetX, current.dy),
-        size,
-        padding,
-        companionWidth,
-        companionHeight,
-      );
-    });
-  }
 
   @override
   void initState() {
@@ -156,6 +78,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     }
   }
 
+  /// Map [ChatState] to [PixelMood] for the pixel companion.
+  PixelMood _mapToPixelMood(ChatState s) {
+    // Error state
+    if (s.errorMessage != null) return PixelMood.error;
+    // Tool execution
+    if (s.toolExecutions.isNotEmpty) return PixelMood.toolRunning;
+    // Streaming
+    if (s.isStreaming) {
+      if (s.expertPhase == ExpertPhase.querying) return PixelMood.thinking;
+      if (s.expertPhase == ExpertPhase.synthesizing) return PixelMood.speaking;
+      return PixelMood.speaking;
+    }
+    // Empty conversation
+    if (s.messages.isEmpty) return PixelMood.idle;
+    // Default
+    return PixelMood.idle;
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -179,7 +119,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     super.dispose();
   }
 
-  // reverse:true 鈥?pixels=0 = bottom, pixels=maxExtent = top
+  // reverse:true: pixels=0 is bottom, pixels=maxExtent is top.
   bool get _isNearBottom {
     if (!_scrollController.hasClients) return true;
     return _scrollController.position.pixels < 100;
@@ -202,14 +142,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     if (!mounted || !_scrollController.hasClients) return;
     final maxExtent = _scrollController.position.maxScrollExtent;
     if (maxExtent <= 0) {
-      // Layout not done yet 鈥?retry next frame
+      // Layout is not done yet; retry next frame.
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _scrollToBottomInitial());
       return;
     }
     _scrollController.jumpTo(maxExtent);
     // After the jump, check if we really reached it.  If not, the
-    // extent grew during layout (more items were built) 鈥?retry once.
+    // Extent grew during layout because more items were built; retry once.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
       final newExtent = _scrollController.position.maxScrollExtent;
@@ -243,7 +183,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       return;
     }
 
-    // Target not built yet 鈥?proportional jump to bring it into view
+    // Target is not built yet; proportional jump brings it into view.
     final messages = ref.read(chatProvider(widget.conversationId)).messages;
     final idx = messages.indexWhere((m) => m.id == messageId);
     if (idx < 0) return; // message deleted?
@@ -500,16 +440,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('鎵归噺鍒犻櫎'),
-        content: Text('纭畾鍒犻櫎 ${_selectedMessageIds.length} 鏉℃秷鎭紵'),
+        title: const Text('批量删除'),
+        content: Text('确定删除 ${_selectedMessageIds.length} 条消息？'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('鍙栨秷')),
+              child: const Text('取消')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('鍒犻櫎')),
+              child: const Text('删除')),
         ],
       ),
     );
@@ -547,27 +487,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .toList();
     if (selected.isEmpty) return;
 
-    final nameCtrl = TextEditingController(text: '瀵硅瘽瀵煎嚭');
+    final nameCtrl = TextEditingController(text: '对话导出');
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('瀵煎嚭 Word'),
+        title: const Text('导出 Word'),
         content: TextField(
             controller: nameCtrl,
             decoration: const InputDecoration(labelText: '文件名')),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('鍙栨秷')),
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
-              child: const Text('瀵煎嚭')),
+              child: const Text('导出')),
         ],
       ),
     );
     if (name == null || name.isEmpty) return;
 
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
 
     try {
@@ -579,18 +519,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
           title: name, messages: messages, outputPath: file.path);
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${file.path}')));
+            .showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
         final result = await showModalBottomSheet<String>(
           context: context,
           builder: (ctx) => SafeArea(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
                 leading: const Icon(Icons.share),
-                title: const Text('鍒嗕韩鏂囦欢'),
+                title: const Text('分享文件'),
                 onTap: () => Navigator.pop(ctx, 'share')),
             ListTile(
                 leading: const Icon(Icons.check),
-                title: const Text('瀹屾垚'),
+                title: const Text('完成'),
                 onTap: () => Navigator.pop(ctx)),
           ])),
         );
@@ -600,7 +540,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
     setState(() {
       _selectedMessageIds.clear();
@@ -633,22 +573,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '瀵硅瘽璁板綍';
+    final title = conv?.title ?? '对话记录';
 
     final nameCtrl = TextEditingController(text: title);
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('瀵煎嚭 Word'),
+        title: const Text('导出 Word'),
         content: TextField(
             controller: nameCtrl,
             decoration: const InputDecoration(labelText: '文件名')),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('鍙栨秷')),
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
-              child: const Text('瀵煎嚭')),
+              child: const Text('导出')),
         ],
       ),
     );
@@ -656,7 +596,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
 
     try {
       final dir =
-          await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
+          await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
       if (dir == null) return;
       final file = File('$dir/$name.docx');
       final messages = chatState.messages
@@ -666,18 +606,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
           title: name, messages: messages, outputPath: file.path);
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${file.path}')));
+            .showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
         final result = await showModalBottomSheet<String>(
           context: context,
           builder: (ctx) => SafeArea(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
                 leading: const Icon(Icons.share),
-                title: const Text('鍒嗕韩鏂囦欢'),
+                title: const Text('分享文件'),
                 onTap: () => Navigator.pop(ctx, 'share')),
             ListTile(
                 leading: const Icon(Icons.check),
-                title: const Text('瀹屾垚'),
+                title: const Text('完成'),
                 onTap: () => Navigator.pop(ctx)),
           ])),
         );
@@ -687,7 +627,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
   }
 
@@ -699,7 +639,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     final panels = ref.watch(expertPanelListProvider);
     final companionConfig = ref.watch(companionConfigProvider);
 
-    // reverse:true makes the list grow upward from the bottom 鈥?
+    // reverse:true makes the list grow upward from the bottom.
     // first frame already shows the newest messages, no jump needed.
     ref.listen(chatProvider(widget.conversationId), (prev, next) {
       final prevLen = prev?.messages.length ?? 0;
@@ -818,7 +758,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                         onPressed: _selectAllMessages),
                     IconButton(
                         icon: const Icon(Icons.delete_outline),
-                        tooltip: '鍒犻櫎',
+                        tooltip: '删除',
                         onPressed: _batchDelete),
                     IconButton(
                         icon: const Icon(Icons.star_outline),
@@ -834,11 +774,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       },
                       itemBuilder: (_) => [
                         const PopupMenuItem(
-                            value: 'word', child: Text('瀵煎嚭 Word')),
+                            value: 'word', child: Text('导出 Word')),
                         const PopupMenuItem(
-                            value: 'md', child: Text('瀵煎嚭 Markdown')),
+                            value: 'md', child: Text('导出 Markdown')),
                         const PopupMenuItem(
-                            value: 'txt', child: Text('瀵煎嚭 TXT')),
+                            value: 'txt', child: Text('导出 TXT')),
                       ],
                       child: const Icon(Icons.description),
                     ),
@@ -850,7 +790,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                   actions: [
                     IconButton(
                       icon: const Icon(Icons.search),
-                      tooltip: '鎼滅储鑱婂ぉ璁板綍',
+                      tooltip: '搜索聊天记录',
                       onPressed: () {
                         setState(() => _showSearch = true);
                       },
@@ -860,7 +800,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                         padding: const EdgeInsets.only(right: 4),
                         child: Chip(
                           label: Text(
-                            '鍏煎惉路${expertPanel.name}',
+                            '兼听·${expertPanel.name}',
                             style: const TextStyle(fontSize: 11),
                           ),
                           backgroundColor:
@@ -901,14 +841,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       },
                       itemBuilder: (ctx) => [
                         const PopupMenuItem(
-                            value: 'select', child: Text('閫夋嫨娑堟伅')),
+                            value: 'select', child: Text('选择消息')),
                         const PopupMenuItem(
-                            value: 'wallpaper', child: Text('璁剧疆澹佺焊')),
+                            value: 'wallpaper', child: Text('设置壁纸')),
                         if (conv?.wallpaperPath != null)
                           const PopupMenuItem(
-                              value: 'clear_wallpaper', child: Text('娓呴櫎澹佺焊')),
+                              value: 'clear_wallpaper', child: Text('清除壁纸')),
                         const PopupMenuItem(
-                            value: 'delete', child: Text('鍒犻櫎浼氳瘽')),
+                            value: 'delete', child: Text('删除会话')),
                       ],
                     ),
                   ],
@@ -1232,73 +1172,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                 child: _buildSearchResults(chatState.messages, theme),
               ),
             ),
-          // Layer 2.5: draggable companion character
+          // Layer 2.5: pixel companion (overlay-based, self-contained)
           if (!_showSearch && companionConfig.enabled)
-            Positioned.fill(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final overlaySize = Size(
-                    constraints.maxWidth,
-                    constraints.maxHeight,
-                  );
-                  final padding = MediaQuery.paddingOf(context);
-                  final companionWidth = companionConfig.size;
-                  final companionHeight = companionConfig.size * 1.5;
-                  final position = _clampCompanionPosition(
-                    _companionPosition ??
-                        _defaultCompanionPosition(
-                          overlaySize,
-                          padding,
-                          companionWidth,
-                          companionHeight,
-                        ),
-                    overlaySize,
-                    padding,
-                    companionWidth,
-                    companionHeight,
-                  );
-
-                  return Stack(
-                    children: [
-                      Positioned(
-                        left: position.dx,
-                        top: position.dy,
-                        width: companionWidth,
-                        height: companionHeight,
-                        child: CompanionCharacter(
-                          mood: chatState.isStreaming
-                              ? CompanionMood.streaming
-                              : (chatState.messages.isEmpty
-                                  ? CompanionMood.sleeping
-                                  : CompanionMood.idle),
-                          color: companionConfig.primary,
-                          accentColor: companionConfig.accent,
-                          size: companionConfig.size,
-                          name: companionConfig.name,
-                          showName: companionConfig.showName,
-                          visualStyle: companionConfig.style ==
-                                  CompanionStyle.hanLi
-                              ? CompanionVisualStyle.hanLi
-                              : CompanionVisualStyle.codex,
-                          onDragUpdate: (details) => _moveCompanion(
-                            details,
-                            overlaySize,
-                            padding,
-                            companionWidth,
-                            companionHeight,
-                          ),
-                          onDragEnd: (_) => _dockCompanion(
-                            overlaySize,
-                            padding,
-                            companionWidth,
-                            companionHeight,
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
+            PixelCompanion(
+              mood: _mapToPixelMood(chatState),
+              screenSize: MediaQuery.sizeOf(context),
+              safePadding: MediaQuery.paddingOf(context),
+              onQuickAction: (action) {
+                switch (action) {
+                  case 'hide':
+                    ref
+                        .read(companionConfigProvider.notifier)
+                        .setEnabled(false);
+                  case 'settings':
+                    Navigator.pushNamed(context, '/settings');
+                  case 'chat':
+                    // scroll to bottom
+                    _scrollToBottom();
+                  case 'skills':
+                    // navigate to skills tab via MainScreen
+                    Navigator.pushNamed(context, '/');
+                }
+              },
             ),
           // Layer 3: scroll-to-bottom FAB
           if (_userScrolledUp)
@@ -1417,15 +1312,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '瀵硅瘽璁板綍';
+    final title = conv?.title ?? '对话记录';
     final buf = StringBuffer();
     buf.writeln('# $title');
     buf.writeln();
     for (final m in chatState.messages) {
       if (m.role == 'user') {
-        buf.writeln('## 馃懁 鐢ㄦ埛');
+        buf.writeln('## 用户');
       } else {
-        buf.writeln('## 馃 AI');
+        buf.writeln('## AI');
       }
       buf.writeln();
       buf.writeln(m.content);
@@ -1433,19 +1328,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     }
 
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.md');
       await f.writeAsString(buf.toString());
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
       }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
   }
 
@@ -1455,29 +1350,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '瀵硅瘽璁板綍';
+    final title = conv?.title ?? '对话记录';
     final buf = StringBuffer();
     for (final m in chatState.messages) {
-      final role = m.role == 'user' ? '鐢ㄦ埛' : 'AI';
-      buf.writeln('[]');
+      final role = m.role == 'user' ? '用户' : 'AI';
+      buf.writeln('[$role]');
       buf.writeln(m.content);
       buf.writeln();
     }
 
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.txt');
       await f.writeAsString(buf.toString());
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
       }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
   }
 
@@ -1491,30 +1386,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         .read(conversationListProvider)
         .where((c) => c.id == widget.conversationId)
         .firstOrNull;
-    final title = conv?.title ?? '瀵硅瘽璁板綍';
+    final title = conv?.title ?? '对话记录';
     final buf = StringBuffer();
     buf.writeln('# $title');
     buf.writeln();
     for (final m in selected) {
-      final role = m.role == 'user' ? '鐢ㄦ埛' : 'AI';
+      final role = m.role == 'user' ? '用户' : 'AI';
       buf.writeln('## $role');
       buf.writeln();
       buf.writeln(m.content);
       buf.writeln();
     }
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.md');
       await f.writeAsString(buf.toString());
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
     setState(() {
       _selectedMessageIds.clear();
@@ -1530,24 +1425,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     if (selected.isEmpty) return;
     final buf = StringBuffer();
     for (final m in selected) {
-      final role = m.role == 'user' ? '鐢ㄦ埛' : 'AI';
-      buf.writeln('[]');
+      final role = m.role == 'user' ? '用户' : 'AI';
+      buf.writeln('[$role]');
       buf.writeln(m.content);
       buf.writeln();
     }
     final dir =
-        await FilePicker.platform.getDirectoryPath(dialogTitle: '閫夋嫨淇濆瓨浣嶇疆');
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/export.txt');
       await f.writeAsString(buf.toString());
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('宸蹭繚瀛? ${f.path}')));
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('瀵煎嚭澶辫触: $e')));
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
     setState(() {
       _selectedMessageIds.clear();
@@ -1570,9 +1465,9 @@ class _ModelSelectorChip extends StatelessWidget {
   });
 
   static const _effortLabels = {
-    'low': '杞绘澗',
-    'medium': '閫備腑',
-    'high': '娣卞害',
+    'low': '轻量',
+    'medium': '适中',
+    'high': '深度',
   };
 
   static const _effortIcons = {
@@ -1609,7 +1504,7 @@ class _ModelSelectorChip extends StatelessWidget {
                         size: 20, color: theme.colorScheme.primary),
                     const SizedBox(width: 8),
                     Text(
-                      '鍒囨崲妯″瀷',
+                      '切换模型',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -1625,7 +1520,7 @@ class _ModelSelectorChip extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '妯″瀷',
+                  '模型',
                   style: theme.textTheme.labelMedium?.copyWith(
                     color: theme.colorScheme.outline,
                     fontWeight: FontWeight.w600,
@@ -1700,7 +1595,7 @@ class _ModelSelectorChip extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  '鎺ㄧ悊娣卞害',
+                  '推理深度',
                   style: theme.textTheme.labelMedium?.copyWith(
                     color: theme.colorScheme.outline,
                     fontWeight: FontWeight.w600,

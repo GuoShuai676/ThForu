@@ -2,9 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum FormulaDisplayMode {
-  off,    // 关闭公式渲染，显示原始 LaTeX 源码
+  off, // 关闭公式渲染，显示原始 LaTeX 源码
   scroll, // 水平滑动查看完整公式
-  scale,  // 自适应缩放到屏幕宽度
+  scale, // 自适应缩放到屏幕宽度
 }
 
 class FormulaDisplayNotifier extends StateNotifier<FormulaDisplayMode> {

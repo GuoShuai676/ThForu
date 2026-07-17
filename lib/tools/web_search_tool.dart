@@ -4,7 +4,8 @@ import '../services/search_service.dart';
 class WebSearchTool {
   static const definition = ToolDefinition(
     name: 'web_search',
-    description: 'Search the web for information. Returns a list of search results with titles, URLs, and snippets. '
+    description:
+        'Search the web for information. Returns a list of search results with titles, URLs, and snippets. '
         'Use when you need current information, facts, documentation, or anything not in your training data.',
     parameters: {
       'type': 'object',
@@ -22,18 +23,27 @@ class WebSearchTool {
     },
   );
 
-  static Future<ToolResult> execute(String toolCallId, Map<String, dynamic> args) async {
+  static Future<ToolResult> execute(
+      String toolCallId, Map<String, dynamic> args) async {
     final query = args['query'] as String? ?? '';
     final maxResults = (args['max_results'] as num?)?.toInt() ?? 5;
 
     if (query.isEmpty) {
-      return ToolResult(toolCallId: toolCallId, name: definition.name, output: 'Error: empty query', isError: true);
+      return ToolResult(
+          toolCallId: toolCallId,
+          name: definition.name,
+          output: 'Error: empty query',
+          isError: true);
     }
 
     try {
-      final results = await SearchService.search(query, maxResults: maxResults.clamp(1, 10));
+      final results = await SearchService.search(query,
+          maxResults: maxResults.clamp(1, 10));
       if (results.isEmpty) {
-        return ToolResult(toolCallId: toolCallId, name: definition.name, output: 'No results found for: $query');
+        return ToolResult(
+            toolCallId: toolCallId,
+            name: definition.name,
+            output: 'No results found for: $query');
       }
 
       final buf = StringBuffer();
@@ -46,9 +56,16 @@ class WebSearchTool {
         buf.writeln('');
       }
 
-      return ToolResult(toolCallId: toolCallId, name: definition.name, output: buf.toString());
+      return ToolResult(
+          toolCallId: toolCallId,
+          name: definition.name,
+          output: buf.toString());
     } catch (e) {
-      return ToolResult(toolCallId: toolCallId, name: definition.name, output: 'Search error: $e', isError: true);
+      return ToolResult(
+          toolCallId: toolCallId,
+          name: definition.name,
+          output: 'Search error: $e',
+          isError: true);
     }
   }
 }

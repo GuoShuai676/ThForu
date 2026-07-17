@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -90,10 +90,12 @@ class DatabaseHelper {
     ''');
   }
 
-  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  static Future<void> _onUpgrade(
+      Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       try {
-        await db.execute("ALTER TABLE conversations ADD COLUMN reasoning_effort TEXT");
+        await db.execute(
+            "ALTER TABLE conversations ADD COLUMN reasoning_effort TEXT");
       } catch (_) {}
       try {
         await db.execute("ALTER TABLE messages ADD COLUMN tool_call_id TEXT");
@@ -112,7 +114,8 @@ class DatabaseHelper {
           updated_at INTEGER NOT NULL
         )
       ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key)');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key)');
     }
   }
 
@@ -130,7 +133,8 @@ class DatabaseHelper {
       final convId = conv['id'] as String;
       final msgRaw = prefs.getString('messages_$convId');
       if (msgRaw != null) {
-        final msgList = (jsonDecode(msgRaw) as List).cast<Map<String, dynamic>>();
+        final msgList =
+            (jsonDecode(msgRaw) as List).cast<Map<String, dynamic>>();
         for (final msg in msgList) {
           batch.insert('messages', msg);
         }

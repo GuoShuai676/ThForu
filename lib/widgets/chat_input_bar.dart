@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,9 +11,10 @@ class ChatInputBar extends ConsumerStatefulWidget {
   final Future<void> Function({
     required String text,
     List<String>? imagePaths,
-    String? filePath,
-    String? fileName,
+    List<String>? filePaths,
+    List<String>? fileNames,
     bool? deepSearch,
+    bool? useTools,
   }) onSend;
   final VoidCallback? onMessageSent;
   final bool supportsVision;
@@ -44,11 +45,13 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
   final _textController = TextEditingController();
   final _focusNode = FocusNode();
   final List<String> _selectedImages = [];
-  String? _selectedFilePath;
-  String? _selectedFileName;
+  final List<String> _selectedFilePaths = [];
+  final List<String> _selectedFileNames = [];
   bool _isRecording = false;
   bool _isTranscribing = false;
+  bool _isSending = false;
   bool _deepSearch = false;
+  bool _useTools = false;
   late final AnimationController _attachAnimCtrl;
 
   @override
@@ -58,6 +61,9 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
       vsync: this,
       duration: const Duration(milliseconds: 250),
     );
+    _textController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -78,26 +84,48 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
     super.dispose();
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
+    if (_isSending) return;
     final text = _textController.text.trim();
-    if (text.isEmpty && _selectedImages.isEmpty && _selectedFilePath == null) return;
+    if (text.isEmpty && _selectedImages.isEmpty && _selectedFilePaths.isEmpty)
+      return;
 
-    widget.onSend(
-      text: text,
-      imagePaths:
-          _selectedImages.isNotEmpty ? List.from(_selectedImages) : null,
-      filePath: _selectedFilePath,
-      fileName: _selectedFileName,
-      deepSearch: _deepSearch,
-    );
+    final imagePaths =
+        _selectedImages.isNotEmpty ? List<String>.from(_selectedImages) : null;
+    final filePaths = _selectedFilePaths.isNotEmpty
+        ? List<String>.from(_selectedFilePaths)
+        : null;
+    final fileNames = _selectedFileNames.isNotEmpty
+        ? List<String>.from(_selectedFileNames)
+        : null;
 
-    _textController.clear();
-    setState(() {
-      _selectedImages.clear();
-      _selectedFilePath = null;
-      _selectedFileName = null;
-    });
-    widget.onMessageSent?.call();
+    setState(() => _isSending = true);
+    try {
+      await widget.onSend(
+        text: text,
+        imagePaths: imagePaths,
+        filePaths: filePaths,
+        fileNames: fileNames,
+        deepSearch: _deepSearch,
+        useTools: _useTools,
+      );
+
+      if (!mounted) return;
+      _textController.clear();
+      setState(() {
+        _selectedImages.clear();
+        _selectedFilePaths.clear();
+        _selectedFileNames.clear();
+      });
+      widget.onMessageSent?.call();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
   }
 
   Future<void> _pickImages() async {
@@ -130,16 +158,17 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
 
   Future<void> _pickFile() async {
     try {
-      final result = await FilePicker.platform.pickFiles();
+      final result = await FilePicker.platform.pickFiles(allowMultiple: true);
       if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        if (file.path != null) {
-          setState(() {
-            _selectedFilePath = file.path;
-            _selectedFileName = file.name;
-          });
-          _attachAnimCtrl.forward(from: 0.0);
-        }
+        setState(() {
+          for (final file in result.files) {
+            if (file.path != null) {
+              _selectedFilePaths.add(file.path!);
+              _selectedFileNames.add(file.name);
+            }
+          }
+        });
+        _attachAnimCtrl.forward(from: 0.0);
       }
     } catch (_) {}
   }
@@ -164,7 +193,15 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
       'mp3' || 'wav' || 'flac' || 'aac' || 'ogg' => Icons.audio_file,
       'mp4' || 'avi' || 'mkv' || 'mov' || 'wmv' => Icons.video_file,
       'txt' || 'md' || 'log' => Icons.article,
-      'py' || 'js' || 'ts' || 'dart' || 'java' || 'c' || 'cpp' || 'h' => Icons.code,
+      'py' ||
+      'js' ||
+      'ts' ||
+      'dart' ||
+      'java' ||
+      'c' ||
+      'cpp' ||
+      'h' =>
+        Icons.code,
       'json' || 'xml' || 'yaml' || 'yml' || 'toml' => Icons.data_object,
       'html' || 'css' || 'htm' => Icons.language,
       _ => Icons.insert_drive_file,
@@ -254,8 +291,6 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasAttachments = _selectedImages.isNotEmpty || _selectedFilePath != null;
-
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -268,15 +303,16 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
         ],
       ),
       child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.followUpContent != null && widget.followUpContent!.isNotEmpty)
-              _buildFollowUpBar(theme),
-            if (_selectedImages.isNotEmpty) _buildImagePreview(theme),
-            if (_selectedFilePath != null) _buildFileCard(theme),
-            _buildDeepSearchToggle(theme),
-            _buildInputRow(theme, hasAttachments),
-          ],
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.followUpContent != null &&
+              widget.followUpContent!.isNotEmpty)
+            _buildFollowUpBar(theme),
+          if (_selectedImages.isNotEmpty) _buildImagePreview(theme),
+          if (_selectedFilePaths.isNotEmpty) _buildFileCard(theme),
+          _buildToggleRow(theme),
+          _buildInputRow(theme),
+        ],
       ),
     );
   }
@@ -311,7 +347,8 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
           const SizedBox(width: 8),
           GestureDetector(
             onTap: widget.onCancelFollowUp,
-            child: Icon(Icons.close, size: 18, color: theme.colorScheme.outline),
+            child:
+                Icon(Icons.close, size: 18, color: theme.colorScheme.outline),
           ),
         ],
       ),
@@ -348,7 +385,8 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                         right: -6,
                         top: -6,
                         child: GestureDetector(
-                          onTap: () => setState(() => _selectedImages.removeAt(index)),
+                          onTap: () =>
+                              setState(() => _selectedImages.removeAt(index)),
                           child: Container(
                             width: 20,
                             height: 20,
@@ -356,7 +394,8 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                               color: Colors.black54,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.close, size: 14, color: Colors.white),
+                            child: const Icon(Icons.close,
+                                size: 14, color: Colors.white),
                           ),
                         ),
                       ),
@@ -365,14 +404,16 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                           left: 4,
                           bottom: 4,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
                             decoration: BoxDecoration(
                               color: Colors.black54,
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               '+${_selectedImages.length - 1}',
-                              style: const TextStyle(color: Colors.white, fontSize: 10),
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 10),
                             ),
                           ),
                         ),
@@ -388,18 +429,6 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
   }
 
   Widget _buildFileCard(ThemeData theme) {
-    final fileName = _selectedFileName ?? '文件';
-    final ext = fileName.split('.').last.toLowerCase();
-    final icon = _iconForFile(fileName);
-    final color = _colorForFile(fileName, theme);
-
-    int? fileSize;
-    if (_selectedFilePath != null) {
-      try {
-        fileSize = File(_selectedFilePath!).lengthSync();
-      } catch (_) {}
-    }
-
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 2),
       child: AnimatedBuilder(
@@ -415,79 +444,105 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
           );
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.06),
+            color: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withValues(alpha: 0.2)),
+            border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2)),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 20, color: color),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      fileName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
+              Row(
+                children: [
+                  Icon(Icons.attach_file,
+                      size: 16, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${_selectedFilePaths.length} 个文件',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Text(
-                          ext.toUpperCase(),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: color,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (fileSize != null) ...[
-                          Text(' · ', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline, fontSize: 10)),
-                          Text(
-                            _formatFileSize(fileSize),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.outline,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap: () => setState(() {
-                  _selectedFilePath = null;
-                  _selectedFileName = null;
-                }),
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                    shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.close, size: 16, color: theme.colorScheme.outline),
-                ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _selectedFilePaths.clear();
+                      _selectedFileNames.clear();
+                    }),
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outlineVariant
+                            .withValues(alpha: 0.3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.close,
+                          size: 14, color: theme.colorScheme.outline),
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 6),
+              ...List.generate(_selectedFilePaths.length, (i) {
+                final name = i < _selectedFileNames.length
+                    ? _selectedFileNames[i]
+                    : 'file';
+                final icon = _iconForFile(name);
+                final color = _colorForFile(name, theme);
+                int? fileSize;
+                try {
+                  fileSize = File(_selectedFilePaths[i]).lengthSync();
+                } catch (_) {}
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Icon(icon, size: 16, color: color),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                        ),
+                      ),
+                      if (fileSize != null)
+                        Text(
+                          _formatFileSize(fileSize),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.outline, fontSize: 10),
+                        ),
+                      GestureDetector(
+                        onTap: () => setState(() {
+                          _selectedFilePaths.removeAt(i);
+                          _selectedFileNames.removeAt(i);
+                        }),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Icon(Icons.close,
+                              size: 16, color: theme.colorScheme.outline),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
             ],
           ),
         ),
@@ -495,59 +550,84 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
     );
   }
 
-  Widget _buildDeepSearchToggle(ThemeData theme) {
+  Widget _buildToggleRow(ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
       child: Row(
         children: [
-          Icon(Icons.explore, size: 15, color: _deepSearch ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.6)),
-          const SizedBox(width: 5),
-          Text('深度搜索', style: theme.textTheme.labelSmall?.copyWith(
-            color: _deepSearch ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.6),
-            fontWeight: _deepSearch ? FontWeight.w600 : FontWeight.w400,
-          )),
-          const Spacer(),
-          GestureDetector(
+          _buildModeChip(
+            theme,
+            icon: Icons.explore_outlined,
+            label: '深度搜索',
+            active: _deepSearch,
             onTap: () => setState(() => _deepSearch = !_deepSearch),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 38,
-              height: 22,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(11),
-                color: _deepSearch
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-              ),
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeInOut,
-                alignment: _deepSearch ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 2,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ),
+          const SizedBox(width: 8),
+          _buildModeChip(
+            theme,
+            icon: Icons.construction_outlined,
+            label: '工具',
+            active: _useTools,
+            onTap: () => setState(() => _useTools = !_useTools),
+          ),
+          const Spacer(),
         ],
       ),
     );
   }
 
-  Widget _buildInputRow(ThemeData theme, bool hasAttachments) {
+  Widget _buildModeChip(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active
+              ? theme.colorScheme.primaryContainer
+              : theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: active
+                ? theme.colorScheme.primary.withValues(alpha: 0.45)
+                : theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: active
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outline,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: active
+                    ? theme.colorScheme.onPrimaryContainer
+                    : theme.colorScheme.onSurfaceVariant,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputRow(ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
       child: Row(
@@ -557,11 +637,11 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
             IconButton(
               icon: Icon(
                 Icons.attach_file,
-                color: _selectedFilePath != null
+                color: _selectedFilePaths.isNotEmpty
                     ? theme.colorScheme.primary
                     : theme.colorScheme.outline,
               ),
-              tooltip: '发送文件',
+              tooltip: '添加文件',
               onPressed: _pickFile,
               iconSize: 22,
             ),
@@ -573,7 +653,7 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                     ? theme.colorScheme.primary
                     : theme.colorScheme.outline,
               ),
-              tooltip: '发送图片',
+              tooltip: '添加图片',
               onPressed: () => _showImageSourceSheet(),
               iconSize: 22,
             ),
@@ -589,7 +669,8 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                   )
                 : Icon(
                     _isRecording ? Icons.mic : Icons.mic_none,
-                    color: _isRecording ? Colors.red : theme.colorScheme.outline,
+                    color:
+                        _isRecording ? Colors.red : theme.colorScheme.outline,
                   ),
             tooltip: '语音输入',
             onPressed: _isRecording ? _stopRecording : _startRecording,
@@ -612,9 +693,8 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                 maxLines: 5,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
-                  hintText: _isRecording
-                      ? '正在录音...'
-                      : widget.hintText ?? '输入消息...',
+                  hintText:
+                      _isRecording ? '正在录音...' : widget.hintText ?? '输入消息...',
                   hintStyle: TextStyle(
                     color: theme.colorScheme.outline.withValues(alpha: 0.6),
                   ),
@@ -623,9 +703,10 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
                     borderSide: BorderSide.none,
                   ),
                   filled: true,
-                  fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
+                  fillColor: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.35),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 ),
                 enabled: !_isRecording,
               ),
@@ -633,7 +714,10 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
           ),
           const SizedBox(width: 4),
           GestureDetector(
-            onTap: (_textController.text.trim().isNotEmpty || _selectedImages.isNotEmpty || _selectedFilePath != null)
+            onTap: (!_isSending &&
+                    (_textController.text.trim().isNotEmpty ||
+                        _selectedImages.isNotEmpty ||
+                        _selectedFilePaths.isNotEmpty))
                 ? _sendMessage
                 : null,
             child: AnimatedContainer(
@@ -642,17 +726,30 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar>
               height: 38,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: (_textController.text.trim().isNotEmpty || _selectedImages.isNotEmpty || _selectedFilePath != null)
+                color: (!_isSending &&
+                        (_textController.text.trim().isNotEmpty ||
+                            _selectedImages.isNotEmpty ||
+                            _selectedFilePaths.isNotEmpty))
                     ? theme.colorScheme.primary
                     : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
               ),
-              child: Icon(
-                Icons.send_rounded,
-                color: (_textController.text.trim().isNotEmpty || _selectedImages.isNotEmpty || _selectedFilePath != null)
-                    ? Colors.white
-                    : theme.colorScheme.outline.withValues(alpha: 0.5),
-                size: 20,
-              ),
+              child: _isSending
+                  ? Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.primary,
+                      ),
+                    )
+                  : Icon(
+                      Icons.send_rounded,
+                      color: (_textController.text.trim().isNotEmpty ||
+                              _selectedImages.isNotEmpty ||
+                              _selectedFilePaths.isNotEmpty)
+                          ? Colors.white
+                          : theme.colorScheme.outline.withValues(alpha: 0.5),
+                      size: 20,
+                    ),
             ),
           ),
         ],

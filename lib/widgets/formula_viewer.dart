@@ -13,8 +13,8 @@ class FormulaViewer extends StatelessWidget {
     required this.displayMode,
   });
 
-  static Future<void> show(BuildContext context, String formula,
-      FormulaDisplayMode mode) {
+  static Future<void> show(
+      BuildContext context, String formula, FormulaDisplayMode mode) {
     return Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -92,14 +92,26 @@ class FormulaViewer extends StatelessWidget {
         .replaceAll('\r', '\n')
         .trim();
     // Strip declare/new/def macros
-    s = s.replaceAll(RegExp(r'\\DeclareMathOperator\s*\*?\s*\{\\.+?\}\s*\{[^}]*\}'), '');
-    s = s.replaceAll(RegExp(r'\\(?:new|renew)command\s*\*?\s*\{\\.+?\}\s*(\[\d+\])?\s*\{[^}]*\}'), '');
+    s = s.replaceAll(
+        RegExp(r'\\DeclareMathOperator\s*\*?\s*\{\\.+?\}\s*\{[^}]*\}'), '');
+    s = s.replaceAll(
+        RegExp(
+            r'\\(?:new|renew)command\s*\*?\s*\{\\.+?\}\s*(\[\d+\])?\s*\{[^}]*\}'),
+        '');
     s = s.replaceAll(RegExp(r'\\def\s*\\.+?\{[^}]*\}'), '');
     // Convert environments
-    s = s.replaceAllMapped(RegExp(r'\\begin\{align\*?\}([\s\S]*?)\\end\{align\*?\}'), (m) => '\\begin{aligned}${m.group(1) ?? ''}\\end{aligned}');
-    s = s.replaceAllMapped(RegExp(r'\\begin\{equation\*?\}([\s\S]*?)\\end\{equation\*?\}'), (m) => (m.group(1) ?? '').trim());
-    s = s.replaceAllMapped(RegExp(r'\\begin\{eqnarray\*?\}([\s\S]*?)\\end\{eqnarray\*?\}'), (m) => '\\begin{aligned}${m.group(1) ?? ''}\\end{aligned}');
-    s = s.replaceAllMapped(RegExp(r'\\begin\{gather\*?\}([\s\S]*?)\\end\{gather\*?\}'), (m) => '\\begin{gathered}${m.group(1) ?? ''}\\end{gathered}');
+    s = s.replaceAllMapped(
+        RegExp(r'\\begin\{align\*?\}([\s\S]*?)\\end\{align\*?\}'),
+        (m) => '\\begin{aligned}${m.group(1) ?? ''}\\end{aligned}');
+    s = s.replaceAllMapped(
+        RegExp(r'\\begin\{equation\*?\}([\s\S]*?)\\end\{equation\*?\}'),
+        (m) => (m.group(1) ?? '').trim());
+    s = s.replaceAllMapped(
+        RegExp(r'\\begin\{eqnarray\*?\}([\s\S]*?)\\end\{eqnarray\*?\}'),
+        (m) => '\\begin{aligned}${m.group(1) ?? ''}\\end{aligned}');
+    s = s.replaceAllMapped(
+        RegExp(r'\\begin\{gather\*?\}([\s\S]*?)\\end\{gather\*?\}'),
+        (m) => '\\begin{gathered}${m.group(1) ?? ''}\\end{gathered}');
     // Strip labels / refs / tags
     s = s.replaceAll(RegExp(r'\\label\s*\{[^}]*\}'), '');
     s = s.replaceAll(RegExp(r'\\ref\s*\{[^}]*\}'), '?');
@@ -120,10 +132,14 @@ class FormulaViewer extends StatelessWidget {
     s = s.replaceAll(RegExp(r'\\left\.\s*'), '');
     s = s.replaceAll(RegExp(r'\\right\.\s*'), '');
     // Niche commands
-    s = s.replaceAllMapped(RegExp(r'\\ce\s*\{([^}]*)\}'), (m) => '\\mathrm{${m.group(1) ?? ''}}');
-    s = s.replaceAllMapped(RegExp(r'\\operatorname\s*\{([^}]*)\}'), (m) => '\\mathrm{${m.group(1) ?? ''}}');
-    s = s.replaceAllMapped(RegExp(r'\\cancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
-    s = s.replaceAllMapped(RegExp(r'\\[bx]cancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
+    s = s.replaceAllMapped(
+        RegExp(r'\\ce\s*\{([^}]*)\}'), (m) => '\\mathrm{${m.group(1) ?? ''}}');
+    s = s.replaceAllMapped(RegExp(r'\\operatorname\s*\{([^}]*)\}'),
+        (m) => '\\mathrm{${m.group(1) ?? ''}}');
+    s = s.replaceAllMapped(
+        RegExp(r'\\cancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
+    s = s.replaceAllMapped(
+        RegExp(r'\\[bx]cancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
     s = s.replaceAll(RegExp(r'\\[hv]space\s*\*?\s*\{[^}]*\}'), '');
     s = s.replaceAll(RegExp(r'\\[hv]fill\b'), '');
     s = s.replaceAll(RegExp(r'\\\\\s*\[[^\]]*\]'), r'\\');

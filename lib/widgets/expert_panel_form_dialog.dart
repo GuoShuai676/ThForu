@@ -14,8 +14,7 @@ class ExpertPanelFormDialog extends ConsumerStatefulWidget {
       _ExpertPanelFormDialogState();
 }
 
-class _ExpertPanelFormDialogState
-    extends ConsumerState<ExpertPanelFormDialog> {
+class _ExpertPanelFormDialogState extends ConsumerState<ExpertPanelFormDialog> {
   final _nameCtrl = TextEditingController();
   final _promptCtrl = TextEditingController();
   String? _gatewayProviderId;

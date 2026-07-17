@@ -62,7 +62,8 @@ class ConversationListNotifier extends StateNotifier<List<Conversation>> {
     state = state.map((c) => c.id == id ? conv : c).toList();
   }
 
-  Future<void> switchModel(String id, String modelName, String? reasoningEffort) async {
+  Future<void> switchModel(
+      String id, String modelName, String? reasoningEffort) async {
     await _dao.updateModel(id, modelName, reasoningEffort);
     state = state.map((c) {
       if (c.id == id) {

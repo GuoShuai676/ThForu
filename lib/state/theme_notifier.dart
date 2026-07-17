@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,7 +31,8 @@ class ThemeNotifier extends StateNotifier<ThemeSettings> {
     final prefs = await SharedPreferences.getInstance();
     final colorValue = prefs.getInt(_colorKey);
     final modeIndex = prefs.getInt(_modeKey) ?? 0;
-    final mode = ThemeMode.values[modeIndex.clamp(0, ThemeMode.values.length - 1)];
+    final mode =
+        ThemeMode.values[modeIndex.clamp(0, ThemeMode.values.length - 1)];
     state = ThemeSettings(
       seedColor: colorValue != null ? Color(colorValue) : Colors.indigo,
       themeMode: mode,

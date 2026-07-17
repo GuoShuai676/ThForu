@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -14,6 +14,8 @@ import '../services/deep_search_service.dart';
 import '../tools/tool_registry.dart';
 import '../tools/tool_executor.dart';
 import '../tools/tool_definition.dart';
+import '../services/skill_matcher.dart';
+import '../models/skill.dart';
 import 'chat_state.dart';
 import '../services/token_counter.dart';
 
@@ -21,12 +23,14 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final String conversationId;
   final MessageDao _messageDao;
   final ConversationDao _conversationDao;
+  final MemoryDao _memoryDao;
   final ToolRegistry _toolRegistry;
   final ToolExecutor _toolExecutor;
   int _activeRunId = 0;
   DateTime _lastUiUpdate = DateTime.now();
 
-  ChatNotifier(this.conversationId, this._messageDao, this._conversationDao, MemoryDao memoryDao, this._toolRegistry, this._toolExecutor)
+  ChatNotifier(this.conversationId, this._messageDao, this._conversationDao,
+      this._memoryDao, this._toolRegistry, this._toolExecutor)
       : super(const ChatState()) {
     loadMessages();
   }
@@ -57,7 +61,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       final msgTokens = TokenCounter.estimateTokens(msg.content);
       if (tokens + msgTokens > _maxContextTokens) break;
       tokens += msgTokens;
-      final insertPos = (keep.isEmpty || (keep.length == 1 && keep.first.role == 'system')) ? keep.length : 0;
+      final insertPos =
+          (keep.isEmpty || (keep.length == 1 && keep.first.role == 'system'))
+              ? keep.length
+              : 0;
       keep.insert(insertPos, msg);
     }
     return keep;
@@ -97,12 +104,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
     List<String>? imagePaths,
     String? filePath,
     String? fileName,
+    List<String>? filePaths,
+    List<String>? fileNames,
     String? replyToId,
     String? replyPreview,
     String? overrideModel,
     String? reasoningEffort,
+    bool useTools = false,
+    Skill? selectedSkill,
+    List<Skill> allSkills = const [],
   }) async {
-    if (text.trim().isEmpty && (imagePaths == null || imagePaths.isEmpty) && filePath == null) {
+    final effectiveFilePaths =
+        filePaths ?? (filePath != null ? [filePath] : null);
+    final effectiveFileNames =
+        fileNames ?? (fileName != null ? [fileName] : null);
+    if (text.trim().isEmpty &&
+        (imagePaths == null || imagePaths.isEmpty) &&
+        (effectiveFilePaths == null || effectiveFilePaths.isEmpty)) {
       return;
     }
 
@@ -122,12 +140,20 @@ class ChatNotifier extends StateNotifier<ChatState> {
       role: 'user',
       content: text,
       imagePaths: imagePaths?.isNotEmpty == true ? imagePaths : null,
-      filePath: filePath,
-      fileName: fileName,
-      metadata: replyToId != null ? {
-        'replyToId': replyToId,
-        'replyPreview': replyPreview,
-      } : null,
+      filePaths: effectiveFilePaths,
+      fileNames: effectiveFileNames,
+      filePath: effectiveFilePaths != null && effectiveFilePaths.length == 1
+          ? effectiveFilePaths.first
+          : null,
+      fileName: effectiveFileNames != null && effectiveFileNames.length == 1
+          ? effectiveFileNames.first
+          : null,
+      metadata: replyToId != null
+          ? {
+              'replyToId': replyToId,
+              'replyPreview': replyPreview,
+            }
+          : null,
     );
     await _messageDao.insert(userMsg);
 
@@ -138,14 +164,18 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
     await _messageDao.insert(assistantMsg);
 
-    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+    if (_activeRunId != myRunId) {
+      WakelockPlus.disable();
+      return;
+    }
     state = ChatState(
       messages: [...state.messages, userMsg, assistantMsg],
       isStreaming: true,
     );
 
-    final history = _trimHistory(
-        state.messages.where((m) => m.id != assistantMsg.id && m.id != userMsg.id).toList());
+    final history = _trimHistory(state.messages
+        .where((m) => m.id != assistantMsg.id && m.id != userMsg.id)
+        .toList());
 
     try {
       final conv = await _conversationDao.getById(conversationId);
@@ -153,196 +183,261 @@ class ChatNotifier extends StateNotifier<ChatState> {
         final prefs = await SharedPreferences.getInstance();
         final raw = prefs.getString('personas');
         if (raw != null) {
-          final list = (jsonDecode(raw) as List)
-              .cast<Map<String, dynamic>>();
-          final personaMap = list.cast<Map<String, dynamic>?>()
-              .firstWhere((p) => p!['id'] == conv!.personaId,
-                  orElse: () => null);
+          final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+          final personaMap = list.cast<Map<String, dynamic>?>().firstWhere(
+              (p) => p!['id'] == conv!.personaId,
+              orElse: () => null);
           if (personaMap != null) {
-            history.insert(0, Message(
-              conversationId: conversationId,
-              role: 'system',
-              content: personaMap['system_prompt'] as String,
-            ));
+            history.insert(
+                0,
+                Message(
+                  conversationId: conversationId,
+                  role: 'system',
+                  content: personaMap['system_prompt'] as String,
+                ));
           }
         }
       }
     } catch (_) {}
+
+    try {
+      final relevantMemories = await _memoryDao.getRelevant(text, limit: 5);
+      if (relevantMemories.isNotEmpty) {
+        final memBuf = StringBuffer('以下是你对用户的记忆，请在回答时参考：\n');
+        for (final m in relevantMemories) {
+          memBuf.writeln('- ${m.key}: ${m.value}');
+        }
+        history.insert(
+            0,
+            Message(
+              conversationId: conversationId,
+              role: 'system',
+              content: memBuf.toString(),
+            ));
+      }
+    } catch (_) {}
+
     if (replyToId != null && replyPreview != null && replyPreview.isNotEmpty) {
-      history.insert(0, Message(
-        conversationId: conversationId,
-        role: 'system',
-        content: '用户正在追问以下内容：「$replyPreview」。请结合上下文回答。',
-      ));
+      history.insert(
+          0,
+          Message(
+            conversationId: conversationId,
+            role: 'system',
+            content: '用户正在追问以下内容：「$replyPreview」。请结合上下文回答。',
+          ));
+    }
+
+    final matchedSkill =
+        SkillMatcher.match(text, allSkills, manualSelection: selectedSkill);
+    if (matchedSkill != null && matchedSkill.systemPrompt.isNotEmpty) {
+      history.insert(
+          0,
+          Message(
+            conversationId: conversationId,
+            role: 'system',
+            content: matchedSkill.systemPrompt,
+          ));
     }
 
     final aiService = AiService(providerConfig);
+    final effectiveModel = (overrideModel != null && overrideModel.isNotEmpty)
+        ? overrideModel
+        : providerConfig.modelName;
 
-    try {
+    bool toolsExecuted = false;
+    List<Message> streamHistory = history;
+
+    if (useTools && _toolRegistry.hasTools) {
       final openAiMessages = <Map<String, dynamic>>[];
       for (final msg in history) {
-        if (msg.role == 'system' || msg.role == 'user' || msg.role == 'assistant') {
+        if (msg.role == 'system' ||
+            msg.role == 'user' ||
+            msg.role == 'assistant') {
           openAiMessages.add(msg.toOpenAIMessage());
         }
       }
-      final userMsgMap = Message(conversationId: '', role: 'user', content: text, imagePaths: imagePaths).toOpenAIMessage();
-      openAiMessages.add(userMsgMap);
+      openAiMessages.add(Message(
+              conversationId: '',
+              role: 'user',
+              content: text,
+              imagePaths: imagePaths)
+          .toOpenAIMessage());
 
-      final toolsEnabled = _toolRegistry.hasTools;
-      const int maxToolRounds = 5;
+      for (int round = 0; round < 5; round++) {
+        if (_activeRunId != myRunId) {
+          WakelockPlus.disable();
+          return;
+        }
 
-      for (int round = 0; round < maxToolRounds; round++) {
-        if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+        try {
+          final toolResult = await aiService.chatWithTools(
+            messages: openAiMessages,
+            tools: _toolRegistry.openAiTools,
+            overrideModel: effectiveModel,
+          );
 
-        if (toolsEnabled && round == 0) {
-          try {
-            final toolResult = await aiService.chatWithTools(
-              messages: openAiMessages,
-              tools: _toolRegistry.openAiTools,
-            );
-
-            final toolCallsRaw = toolResult.toolCalls;
-            if (toolCallsRaw == null || toolCallsRaw.isEmpty) {
-              final preContent = toolResult.content ?? '';
-              if (preContent.isEmpty) break;
-              openAiMessages.add({'role': 'assistant', 'content': preContent});
-              break;
+          if (toolResult.toolCalls == null || toolResult.toolCalls!.isEmpty) {
+            if (toolResult.content != null && toolResult.content!.isNotEmpty) {
+              openAiMessages
+                  .add({'role': 'assistant', 'content': toolResult.content});
             }
+            break;
+          }
 
-            final assistantToolMsg = Message(
-              conversationId: conversationId,
-              role: 'assistant',
-              content: toolResult.content ?? '',
-              toolCalls: toolCallsRaw,
-            );
-            await _messageDao.insert(assistantToolMsg);
+          toolsExecuted = true;
+          openAiMessages.add({
+            'role': 'assistant',
+            'content':
+                toolResult.content?.isEmpty == true ? null : toolResult.content,
+            'tool_calls': toolResult.toolCalls,
+          });
+
+          for (final tc in toolResult.toolCalls!) {
+            if (_activeRunId != myRunId) {
+              WakelockPlus.disable();
+              return;
+            }
+            final tcId = tc['id'] as String;
+            final funcName = tc['function']?['name'] as String? ?? 'unknown';
+            Map<String, dynamic> args = {};
+            try {
+              args = jsonDecode(tc['function']?['arguments'] as String? ?? '{}')
+                  as Map<String, dynamic>;
+            } catch (_) {}
+
+            String summary = funcName;
+            if (funcName == 'terminal')
+              summary = args['command'] as String? ?? funcName;
+            else if (funcName == 'web_search')
+              summary = args['query'] as String? ?? funcName;
+            else if (funcName == 'memory')
+              summary =
+                  '${args['action']}: ${args['key'] ?? args['query'] ?? ''}';
+
             state = state.copyWith(
-              messages: [...state.messages, assistantToolMsg],
+              toolExecutions: [
+                ...state.toolExecutions,
+                ToolExecInfo(id: tcId, name: funcName, summary: summary)
+              ],
               isStreaming: true,
             );
 
+            ToolResult result;
+            try {
+              result = await _toolExecutor
+                  .execute(ToolCall(id: tcId, name: funcName, arguments: args));
+            } catch (e) {
+              result = ToolResult(
+                  toolCallId: tcId,
+                  name: funcName,
+                  output: 'Tool execution error: $e',
+                  isError: true);
+            }
+
+            final updatedExecs = List<ToolExecInfo>.from(state.toolExecutions);
+            final idx = updatedExecs.indexWhere((e) => e.id == tcId);
+            if (idx >= 0) {
+              updatedExecs[idx] = updatedExecs[idx].copyWith(
+                status: result.isError
+                    ? ToolExecStatus.failed
+                    : ToolExecStatus.completed,
+                output: result.output.length > 500
+                    ? '${result.output.substring(0, 500)}...'
+                    : result.output,
+              );
+            }
+            state = state.copyWith(toolExecutions: updatedExecs);
+
             openAiMessages.add({
-              'role': 'assistant',
-              'content': toolResult.content?.isEmpty == true ? null : toolResult.content,
-              'tool_calls': toolCallsRaw,
+              'role': 'tool',
+              'tool_call_id': tcId,
+              'name': funcName,
+              'content': result.output,
             });
 
-            final execInfos = <ToolExecInfo>[];
-            for (final tc in toolCallsRaw) {
-              final tcId = tc['id'] as String;
-              final funcName = tc['function']?['name'] as String? ?? 'unknown';
-              Map<String, dynamic> args = {};
-              try {
-                final argsStr = tc['function']?['arguments'] as String? ?? '{}';
-                args = jsonDecode(argsStr) as Map<String, dynamic>;
-              } catch (_) {}
-
-              String summary = funcName;
-              if (funcName == 'terminal') {
-                summary = args['command'] as String? ?? funcName;
-              } else if (funcName == 'web_search') {
-                summary = args['query'] as String? ?? funcName;
-              } else if (funcName == 'memory') {
-                summary = '${args['action']}: ${args['key'] ?? args['query'] ?? ''}';
-              }
-
-              execInfos.add(ToolExecInfo(id: tcId, name: funcName, summary: summary));
-            }
-            state = state.copyWith(toolExecutions: execInfos);
-
-            for (int i = 0; i < toolCallsRaw.length; i++) {
-              final tc = toolCallsRaw[i];
-              final tcId = tc['id'] as String;
-              final funcName = tc['function']?['name'] as String? ?? 'unknown';
-              Map<String, dynamic> args = {};
-              try {
-                final argsStr = tc['function']?['arguments'] as String? ?? '{}';
-                args = jsonDecode(argsStr) as Map<String, dynamic>;
-              } catch (_) {}
-
-              final toolCall = ToolCall(id: tcId, name: funcName, arguments: args);
-              final result = await _toolExecutor.execute(toolCall);
-
-              final updatedExecs = List<ToolExecInfo>.from(state.toolExecutions);
-              final idx = updatedExecs.indexWhere((e) => e.id == tcId);
-              if (idx >= 0) {
-                updatedExecs[idx] = updatedExecs[idx].copyWith(
-                  status: result.isError ? ToolExecStatus.failed : ToolExecStatus.completed,
-                  output: result.output.length > 500 ? result.output.substring(0, 500) + '...' : result.output,
-                );
-              }
-              state = state.copyWith(toolExecutions: updatedExecs);
-
-              openAiMessages.add({
-                'role': 'tool',
-                'tool_call_id': tcId,
-                'name': funcName,
-                'content': result.output,
-              });
-            }
-            continue;
-          } catch (_) {
+            streamHistory.add(Message(
+              conversationId: conversationId,
+              role: 'tool',
+              content: result.output,
+              toolCallId: tcId,
+            ));
           }
-        }
-
-        if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-
-        final fullBuf = StringBuffer();
-        DateTime lastDbWrite = DateTime.now();
-        await for (final chunk in aiService.streamChat(
-          history: history,
-          newUserMessage: text,
-          imagePaths: imagePaths,
-          overrideModel: overrideModel,
-          reasoningEffort: reasoningEffort,
-          isCancelled: () => _activeRunId != myRunId,
-        )) {
+        } on AiException catch (e) {
           if (_activeRunId != myRunId) {
-            await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
             WakelockPlus.disable();
             return;
           }
-          final clean = StringBuffer();
-          for (var i = 0; i < chunk.length; i++) {
-            final c = chunk.codeUnitAt(i);
-            if (c < 0xD800 || c > 0xDFFF) clean.writeCharCode(c);
-          }
-          fullBuf.write(clean);
+          state = state.copyWith(
+            toolExecutions: [
+              ...state.toolExecutions,
+              ToolExecInfo(
+                id: 'error_$round',
+                name: 'system',
+                summary: '工具调用失败',
+                status: ToolExecStatus.failed,
+                output: e.message,
+              )
+            ],
+          );
+          break;
+        } catch (e) {
+          break;
+        }
+      }
+    }
 
-          final now = DateTime.now();
-          if (now.difference(lastDbWrite).inMilliseconds > 2000) {
-            lastDbWrite = now;
-            await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
-          }
+    try {
+      final fullBuf = StringBuffer();
+      DateTime lastDbWrite = DateTime.now();
+      await for (final chunk in aiService.streamChat(
+        history: streamHistory,
+        newUserMessage: toolsExecuted ? '' : text,
+        imagePaths: imagePaths,
+        overrideModel: effectiveModel,
+        reasoningEffort: reasoningEffort,
+        isCancelled: () => _activeRunId != myRunId,
+      )) {
+        if (_activeRunId != myRunId) {
+          await _messageDao.updateContent(
+              conversationId, assistantMsg.id, fullBuf.toString());
+          WakelockPlus.disable();
+          return;
+        }
+        fullBuf.write(chunk);
 
-          if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
-            _lastUiUpdate = now;
-            try {
-              final content = fullBuf.toString();
-              if (_activeRunId != myRunId) return;
-              state = ChatState(
-                messages: _updateMessageInState(assistantMsg.id, content),
-                isStreaming: true,
-                toolExecutions: state.toolExecutions,
-              );
-            } catch (_) {}
-          }
+        final now = DateTime.now();
+        if (now.difference(lastDbWrite).inMilliseconds > 2000) {
+          lastDbWrite = now;
+          await _messageDao.updateContent(
+              conversationId, assistantMsg.id, fullBuf.toString());
         }
 
-        if (_activeRunId != myRunId) return;
-        try {
-          final content = fullBuf.toString();
-          state = ChatState(
-            messages: _updateMessageInState(assistantMsg.id, content),
-            isStreaming: false,
-            toolExecutions: state.toolExecutions,
-          );
-        } catch (_) {}
-        break;
+        if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
+          _lastUiUpdate = now;
+          try {
+            final content = fullBuf.toString();
+            if (_activeRunId != myRunId) return;
+            state = ChatState(
+                messages: _updateMessageInState(assistantMsg.id, content),
+                isStreaming: true);
+          } catch (_) {}
+        }
       }
+
+      if (_activeRunId != myRunId) return;
+      try {
+        final content = fullBuf.toString();
+        state = ChatState(
+            messages: _updateMessageInState(assistantMsg.id, content),
+            isStreaming: false);
+      } catch (_) {}
     } on AiException catch (e) {
-      if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(conversationId, assistantMsg.id, '错误: ${e.message}');
+      if (_activeRunId != myRunId) {
+        WakelockPlus.disable();
+        return;
+      }
+      await _messageDao.updateContent(
+          conversationId, assistantMsg.id, '错误: ${e.message}');
       try {
         state = ChatState(
           messages: _updateMessageInState(assistantMsg.id, '错误: ${e.message}'),
@@ -352,8 +447,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
         );
       } catch (_) {}
     } catch (e) {
-      if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(conversationId, assistantMsg.id, '未知错误: $e');
+      if (_activeRunId != myRunId) {
+        WakelockPlus.disable();
+        return;
+      }
+      await _messageDao.updateContent(
+          conversationId, assistantMsg.id, '未知错误: $e');
       try {
         state = ChatState(
           messages: _updateMessageInState(assistantMsg.id, '未知错误: $e'),
@@ -389,7 +488,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     try {
       final conv = await _conversationDao.getById(conversationId);
       if (conv != null && conv.title == 'New Chat') {
-        final title = '深度搜索: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
+        final title =
+            '深度搜索: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
         await _conversationDao.updateTitle(conversationId, title);
       }
     } catch (_) {}
@@ -409,8 +509,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
     await _messageDao.insert(assistantMsg);
 
-    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-    state = ChatState(messages: [...state.messages, userMsg, assistantMsg], isStreaming: true);
+    if (_activeRunId != myRunId) {
+      WakelockPlus.disable();
+      return;
+    }
+    state = ChatState(
+        messages: [...state.messages, userMsg, assistantMsg],
+        isStreaming: true);
 
     final fullBuf = StringBuffer();
     DateTime lastDbWrite = DateTime.now();
@@ -428,28 +533,37 @@ class ChatNotifier extends StateNotifier<ChatState> {
         final now = DateTime.now();
         if (now.difference(lastDbWrite).inMilliseconds > 2000) {
           lastDbWrite = now;
-          await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
+          await _messageDao.updateContent(
+              conversationId, assistantMsg.id, fullBuf.toString());
         }
         if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
           _lastUiUpdate = now;
           try {
             final content = fullBuf.toString();
-            state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: true);
+            state = ChatState(
+                messages: _updateMessageInState(assistantMsg.id, content),
+                isStreaming: true);
           } catch (_) {}
         }
       }
 
       if (_activeRunId != myRunId) return;
-      await _messageDao.updateContent(conversationId, assistantMsg.id, fullBuf.toString());
+      await _messageDao.updateContent(
+          conversationId, assistantMsg.id, fullBuf.toString());
       try {
         final content = fullBuf.toString();
-        state = ChatState(messages: _updateMessageInState(assistantMsg.id, content), isStreaming: false);
+        state = ChatState(
+            messages: _updateMessageInState(assistantMsg.id, content),
+            isStreaming: false);
       } catch (_) {}
     } catch (e) {
       final errContent = '深度搜索失败: $e';
-      await _messageDao.updateContent(conversationId, assistantMsg.id, errContent);
+      await _messageDao.updateContent(
+          conversationId, assistantMsg.id, errContent);
       try {
-        state = ChatState(messages: _updateMessageInState(assistantMsg.id, errContent), isStreaming: false);
+        state = ChatState(
+            messages: _updateMessageInState(assistantMsg.id, errContent),
+            isStreaming: false);
       } catch (_) {}
     }
 
@@ -465,7 +579,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
     String? filePath,
     String? fileName,
   }) async {
-    if (text.trim().isEmpty && (imagePaths == null || imagePaths.isEmpty) && filePath == null) {
+    if (text.trim().isEmpty &&
+        (imagePaths == null || imagePaths.isEmpty) &&
+        filePath == null) {
       return;
     }
 
@@ -519,7 +635,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       );
     }
 
-    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+    if (_activeRunId != myRunId) {
+      WakelockPlus.disable();
+      return;
+    }
     state = ChatState(
       messages: allMessages,
       isStreaming: true,
@@ -528,7 +647,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
 
     final history = _trimHistory(state.messages
-        .where((m) => m.id != userMsg.id && !expertPlaceholders.containsKey(m.id))
+        .where(
+            (m) => m.id != userMsg.id && !expertPlaceholders.containsKey(m.id))
         .toList());
 
     final expertResults = await ExpertModeService.queryAllExperts(
@@ -545,7 +665,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
       isCancelled: () => _activeRunId != myRunId,
     );
 
-    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+    if (_activeRunId != myRunId) {
+      WakelockPlus.disable();
+      return;
+    }
 
     allMessages = state.messages.toList();
     for (final entry in expertResults.entries) {
@@ -554,11 +677,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
       final idx = allMessages.indexWhere((m) => m.id == placeholder.id);
       if (idx >= 0) {
         allMessages[idx] = placeholder.copyWith(content: entry.value);
-        await _messageDao.updateContent(conversationId, placeholder.id, entry.value);
+        await _messageDao.updateContent(
+            conversationId, placeholder.id, entry.value);
       }
     }
 
-    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+    if (_activeRunId != myRunId) {
+      WakelockPlus.disable();
+      return;
+    }
     state = ChatState(
       messages: allMessages,
       isStreaming: true,
@@ -566,10 +693,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
       expertStatuses: state.expertStatuses,
     );
 
-    final hasSuccess = expertResults.values.any(
-        (v) => !v.startsWith('错误:') && !v.startsWith('未知错误:'));
+    final hasSuccess = expertResults.values
+        .any((v) => !v.startsWith('错误:') && !v.startsWith('未知错误:'));
     if (!hasSuccess) {
-      if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+      if (_activeRunId != myRunId) {
+        WakelockPlus.disable();
+        return;
+      }
       state = ChatState(
         messages: allMessages,
         isStreaming: false,
@@ -589,7 +719,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
       userQuestion: text,
       expertResponses: expertResults,
       configMap: configMap,
-      customPrompt: panel.synthesisPrompt.isNotEmpty ? panel.synthesisPrompt : null,
+      customPrompt:
+          panel.synthesisPrompt.isNotEmpty ? panel.synthesisPrompt : null,
     );
 
     final gatewayPlaceholder = Message(
@@ -600,7 +731,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
     await _messageDao.insert(gatewayPlaceholder);
     allMessages = [...state.messages, gatewayPlaceholder];
-    if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
+    if (_activeRunId != myRunId) {
+      WakelockPlus.disable();
+      return;
+    }
     state = ChatState(
       messages: allMessages,
       isStreaming: true,
@@ -609,9 +743,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
 
     final gatewayHistory = _trimHistory(state.messages
-        .where((m) => m.id != gatewayPlaceholder.id &&
-            (m.metadata == null ||
-                m.metadata!['type'] != 'expert_response'))
+        .where((m) =>
+            m.id != gatewayPlaceholder.id &&
+            (m.metadata == null || m.metadata!['type'] != 'expert_response'))
         .toList());
 
     final systemMsg = Message(
@@ -634,7 +768,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         isCancelled: () => _activeRunId != myRunId,
       )) {
         if (_activeRunId != myRunId) {
-          await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, fullBuf.toString());
+          await _messageDao.updateContent(
+              conversationId, gatewayPlaceholder.id, fullBuf.toString());
           WakelockPlus.disable();
           return;
         }
@@ -643,7 +778,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         final now = DateTime.now();
         if (now.difference(lastDbWrite).inMilliseconds > 2000) {
           lastDbWrite = now;
-          await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, fullBuf.toString());
+          await _messageDao.updateContent(
+              conversationId, gatewayPlaceholder.id, fullBuf.toString());
         }
 
         if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
@@ -671,19 +807,28 @@ class ChatNotifier extends StateNotifier<ChatState> {
         );
       } catch (_) {}
     } on AiException catch (e) {
-      if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, '综合失败: ${e.message}');
+      if (_activeRunId != myRunId) {
+        WakelockPlus.disable();
+        return;
+      }
+      await _messageDao.updateContent(
+          conversationId, gatewayPlaceholder.id, '综合失败: ${e.message}');
       try {
         state = ChatState(
-          messages: _updateMessageInState(gatewayPlaceholder.id, '综合失败: ${e.message}'),
+          messages: _updateMessageInState(
+              gatewayPlaceholder.id, '综合失败: ${e.message}'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
           errorMessage: '网关综合失败: ${e.message}',
         );
       } catch (_) {}
     } catch (e) {
-      if (_activeRunId != myRunId) { WakelockPlus.disable(); return; }
-      await _messageDao.updateContent(conversationId, gatewayPlaceholder.id, '综合失败: $e');
+      if (_activeRunId != myRunId) {
+        WakelockPlus.disable();
+        return;
+      }
+      await _messageDao.updateContent(
+          conversationId, gatewayPlaceholder.id, '综合失败: $e');
       try {
         state = ChatState(
           messages: _updateMessageInState(gatewayPlaceholder.id, '综合失败: $e'),

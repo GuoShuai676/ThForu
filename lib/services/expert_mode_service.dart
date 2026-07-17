@@ -1,4 +1,4 @@
-﻿import '../models/provider_config.dart';
+import '../models/provider_config.dart';
 import '../models/message.dart';
 import '../state/chat_state.dart';
 import 'ai_service.dart';
@@ -72,9 +72,9 @@ class ExpertModeService {
     }).toList();
 
     await Future.wait(futures.map((f) => f.timeout(
-      const Duration(seconds: 120),
-      onTimeout: () {},
-    )));
+          const Duration(seconds: 120),
+          onTimeout: () {},
+        )));
     return results;
   }
 

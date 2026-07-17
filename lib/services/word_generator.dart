@@ -12,7 +12,8 @@ class WordGenerator {
 
     // Document XML
     buffer.writeln('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>');
-    buffer.writeln('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+    buffer.writeln(
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">');
     buffer.writeln('<w:body>');
 
@@ -26,7 +27,8 @@ class WordGenerator {
       final role = msg['role'] == 'user' ? '用户' : 'AI';
       final content = msg['content'] ?? '';
 
-      buffer.writeln('<w:p><w:r><w:rPr><w:b/><w:sz w:val="24"/><w:color w:val="2196F3"/></w:rPr>'
+      buffer.writeln(
+          '<w:p><w:r><w:rPr><w:b/><w:sz w:val="24"/><w:color w:val="2196F3"/></w:rPr>'
           '<w:t>[$role]</w:t></w:r></w:p>');
 
       for (final line in content.split('\n')) {
@@ -41,7 +43,8 @@ class WordGenerator {
     final docBytes = utf8.encode(buffer.toString());
 
     // Content types
-    final ctBytes = utf8.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    final ctBytes = utf8.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
         '<Default Extension="xml" ContentType="application/xml"/>'
@@ -49,22 +52,28 @@ class WordGenerator {
         '</Types>');
 
     // Root rels
-    final rootRelsBytes = utf8.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    final rootRelsBytes = utf8.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
         '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
         '</Relationships>');
 
     // Word rels
-    final wordRelsBytes = utf8.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    final wordRelsBytes = utf8.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
         '</Relationships>');
 
     // Build ZIP
     final archive = Archive();
-    archive.addFile(ArchiveFile('[Content_Types].xml', ctBytes.length, ctBytes));
-    archive.addFile(ArchiveFile('_rels/.rels', rootRelsBytes.length, rootRelsBytes));
-    archive.addFile(ArchiveFile('word/document.xml', docBytes.length, docBytes));
-    archive.addFile(ArchiveFile('word/_rels/document.xml.rels', wordRelsBytes.length, wordRelsBytes));
+    archive
+        .addFile(ArchiveFile('[Content_Types].xml', ctBytes.length, ctBytes));
+    archive.addFile(
+        ArchiveFile('_rels/.rels', rootRelsBytes.length, rootRelsBytes));
+    archive
+        .addFile(ArchiveFile('word/document.xml', docBytes.length, docBytes));
+    archive.addFile(ArchiveFile(
+        'word/_rels/document.xml.rels', wordRelsBytes.length, wordRelsBytes));
 
     final zipBytes = ZipEncoder().encode(archive);
     if (zipBytes == null) throw Exception('Failed to encode DOCX');

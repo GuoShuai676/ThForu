@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/expert_panel.dart';
 import '../models/provider_config.dart';
@@ -59,10 +59,12 @@ class SettingsScreen extends ConsumerWidget {
                       runSpacing: 10,
                       children: _seedColors.map((color) {
                         final isSelected =
-                            ref.watch(themeProvider).seedColor.toARGB32() == color.toARGB32();
+                            ref.watch(themeProvider).seedColor.toARGB32() ==
+                                color.toARGB32();
                         return GestureDetector(
-                          onTap: () =>
-                              ref.read(themeProvider.notifier).setSeedColor(color),
+                          onTap: () => ref
+                              .read(themeProvider.notifier)
+                              .setSeedColor(color),
                           child: Container(
                             width: 36,
                             height: 36,
@@ -71,11 +73,13 @@ class SettingsScreen extends ConsumerWidget {
                               shape: BoxShape.circle,
                               border: isSelected
                                   ? Border.all(
-                                      color: theme.colorScheme.onSurface, width: 3)
+                                      color: theme.colorScheme.onSurface,
+                                      width: 3)
                                   : null,
                             ),
                             child: isSelected
-                                ? const Icon(Icons.check, color: Colors.white, size: 18)
+                                ? const Icon(Icons.check,
+                                    color: Colors.white, size: 18)
                                 : null,
                           ),
                         );
@@ -95,17 +99,29 @@ class SettingsScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('\u6df1\u8272\u6a21\u5f0f', style: theme.textTheme.bodyMedium),
+                    Text('\u6df1\u8272\u6a21\u5f0f',
+                        style: theme.textTheme.bodyMedium),
                     const SizedBox(height: 12),
                     SegmentedButton<ThemeMode>(
                       segments: const [
-                        ButtonSegment(value: ThemeMode.system, label: Text('\u8ddf\u968f\u7cfb\u7edf'), icon: Icon(Icons.settings_brightness)),
-                        ButtonSegment(value: ThemeMode.light, label: Text('\u6d45\u8272'), icon: Icon(Icons.light_mode)),
-                        ButtonSegment(value: ThemeMode.dark, label: Text('\u6df1\u8272'), icon: Icon(Icons.dark_mode)),
+                        ButtonSegment(
+                            value: ThemeMode.system,
+                            label: Text('\u8ddf\u968f\u7cfb\u7edf'),
+                            icon: Icon(Icons.settings_brightness)),
+                        ButtonSegment(
+                            value: ThemeMode.light,
+                            label: Text('\u6d45\u8272'),
+                            icon: Icon(Icons.light_mode)),
+                        ButtonSegment(
+                            value: ThemeMode.dark,
+                            label: Text('\u6df1\u8272'),
+                            icon: Icon(Icons.dark_mode)),
                       ],
                       selected: {ref.watch(themeProvider).themeMode},
                       onSelectionChanged: (sel) {
-                        ref.read(themeProvider.notifier).setThemeMode(sel.first);
+                        ref
+                            .read(themeProvider.notifier)
+                            .setThemeMode(sel.first);
                       },
                     ),
                   ],
@@ -239,6 +255,7 @@ class SettingsScreen extends ConsumerWidget {
                     ?.copyWith(color: theme.colorScheme.primary)),
           ),
           _buildFormulaDisplaySetting(ref, theme),
+          _buildToolSettingsSection(ref, theme),
           const SizedBox(height: 32),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -259,6 +276,102 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildToolSettingsSection(WidgetRef ref, ThemeData theme) {
+    final settings = ref.watch(toolSettingsProvider);
+    final notifier = ref.read(toolSettingsProvider.notifier);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text('工具与权限',
+              style: theme.textTheme.titleSmall
+                  ?.copyWith(color: theme.colorScheme.primary)),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    title: const Text('启用 AI 工具'),
+                    subtitle: const Text('允许 AI 自动调用工具完成任务'),
+                    value: settings.toolsEnabled,
+                    onChanged: (v) => notifier.setToolsEnabled(v),
+                  ),
+                  const Divider(),
+                  SwitchListTile(
+                    title: const Text('终端'),
+                    subtitle: const Text('执行 shell 命令'),
+                    value: settings.terminalEnabled && settings.toolsEnabled,
+                    onChanged: settings.toolsEnabled
+                        ? (v) => notifier.setTerminalEnabled(v)
+                        : null,
+                  ),
+                  SwitchListTile(
+                    title: const Text('联网搜索'),
+                    subtitle: const Text('搜索网页获取实时信息'),
+                    value: settings.webSearchEnabled && settings.toolsEnabled,
+                    onChanged: settings.toolsEnabled
+                        ? (v) => notifier.setWebSearchEnabled(v)
+                        : null,
+                  ),
+                  SwitchListTile(
+                    title: const Text('记忆'),
+                    subtitle: const Text('跨会话记住用户信息'),
+                    value: settings.memoryEnabled && settings.toolsEnabled,
+                    onChanged: settings.toolsEnabled
+                        ? (v) => notifier.setMemoryEnabled(v)
+                        : null,
+                  ),
+                  SwitchListTile(
+                    title: const Text('日期时间'),
+                    subtitle: const Text('获取当前时间信息'),
+                    value: settings.datetimeEnabled && settings.toolsEnabled,
+                    onChanged: settings.toolsEnabled
+                        ? (v) => notifier.setDatetimeEnabled(v)
+                        : null,
+                  ),
+                  const Divider(),
+                  ListTile(
+                    title: const Text('终端权限'),
+                    subtitle: Text(_permLabel(settings.terminalPermission)),
+                    trailing: DropdownButton<String>(
+                      value: settings.terminalPermission,
+                      underline: const SizedBox(),
+                      items: const [
+                        DropdownMenuItem(value: 'read_only', child: Text('只读')),
+                        DropdownMenuItem(
+                            value: 'write_sandbox', child: Text('允许写入')),
+                        DropdownMenuItem(
+                            value: 'delete_sandbox', child: Text('允许删除')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) notifier.setTerminalPermission(v);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _permLabel(String perm) {
+    return switch (perm) {
+      'read_only' => '只读命令',
+      'write_sandbox' => '允许写入沙箱',
+      'delete_sandbox' => '允许删除沙箱',
+      _ => perm,
+    };
   }
 
   void _confirmDelete(BuildContext context, WidgetRef ref, String id) {
@@ -380,9 +493,7 @@ class SettingsScreen extends ConsumerWidget {
                 ],
                 selected: {mode},
                 onSelectionChanged: (sel) {
-                  ref
-                      .read(formulaDisplayProvider.notifier)
-                      .setMode(sel.first);
+                  ref.read(formulaDisplayProvider.notifier).setMode(sel.first);
                 },
               ),
             ],
@@ -470,8 +581,7 @@ class SettingsScreen extends ConsumerWidget {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.group,
-                      size: 18, color: theme.colorScheme.outline),
+                  Icon(Icons.group, size: 18, color: theme.colorScheme.outline),
                   const SizedBox(width: 4),
                   PopupMenuButton<String>(
                     onSelected: (action) async {

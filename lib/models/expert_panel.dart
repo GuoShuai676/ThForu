@@ -29,8 +29,7 @@ class ExpertPanel {
     return ExpertPanel(
       id: json['id'] as String,
       name: json['name'] as String,
-      expertProviderIds:
-          (json['expert_provider_ids'] as List).cast<String>(),
+      expertProviderIds: (json['expert_provider_ids'] as List).cast<String>(),
       gatewayProviderId: json['gateway_provider_id'] as String,
       synthesisPrompt: json['synthesis_prompt'] as String? ?? '',
     );

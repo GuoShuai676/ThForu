@@ -35,7 +35,8 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
 
   Future<void> _load() async {
     final dao = ref.read(memoryDaoProvider);
-    final results = _query.isEmpty ? await dao.getAll() : await dao.search(_query);
+    final results =
+        _query.isEmpty ? await dao.getAll() : await dao.search(_query);
     if (mounted) {
       setState(() {
         _memories = results;
@@ -55,23 +56,44 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: keyCtrl, decoration: const InputDecoration(labelText: 'Key', border: OutlineInputBorder())),
+            TextField(
+                controller: keyCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Key', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: valueCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Value', border: OutlineInputBorder(), alignLabelWithHint: true)),
+            TextField(
+                controller: valueCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                    labelText: 'Value',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true)),
             const SizedBox(height: 12),
-            TextField(controller: tagsCtrl, decoration: const InputDecoration(labelText: 'Tags (逗号分隔)', border: OutlineInputBorder())),
+            TextField(
+                controller: tagsCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Tags (逗号分隔)', border: OutlineInputBorder())),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('保存')),
         ],
       ),
     );
-    if (result == true && keyCtrl.text.trim().isNotEmpty && valueCtrl.text.trim().isNotEmpty) {
+    if (result == true &&
+        keyCtrl.text.trim().isNotEmpty &&
+        valueCtrl.text.trim().isNotEmpty) {
       final dao = ref.read(memoryDaoProvider);
-      final tags = tagsCtrl.text.trim().isEmpty ? <String>[] : tagsCtrl.text.split(',').map((t) => t.trim()).toList();
-      await dao.upsert(MemoryEntry(key: keyCtrl.text.trim(), value: valueCtrl.text.trim(), tags: tags));
+      final tags = tagsCtrl.text.trim().isEmpty
+          ? <String>[]
+          : tagsCtrl.text.split(',').map((t) => t.trim()).toList();
+      await dao.upsert(MemoryEntry(
+          key: keyCtrl.text.trim(), value: valueCtrl.text.trim(), tags: tags));
       _load();
     }
   }
@@ -83,8 +105,13 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         title: const Text('删除记忆'),
         content: Text('确定删除 "${entry.key}" ？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), style: FilledButton.styleFrom(backgroundColor: Colors.red), child: const Text('删除')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('删除')),
         ],
       ),
     );
@@ -103,7 +130,10 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
       appBar: AppBar(
         title: const Text('记忆管理'),
         actions: [
-          IconButton(icon: const Icon(Icons.add), tooltip: '添加记忆', onPressed: _addMemory),
+          IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: '添加记忆',
+              onPressed: _addMemory),
         ],
       ),
       body: Column(
@@ -116,10 +146,16 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                 hintText: '搜索记忆...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _query.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchCtrl.clear(); })
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                        })
                     : null,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
               ),
             ),
           ),
@@ -131,9 +167,12 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.psychology_outlined, size: 48, color: theme.colorScheme.outline),
+                            Icon(Icons.psychology_outlined,
+                                size: 48, color: theme.colorScheme.outline),
                             const SizedBox(height: 8),
-                            Text('暂无记忆', style: TextStyle(color: theme.colorScheme.outline)),
+                            Text('暂无记忆',
+                                style: TextStyle(
+                                    color: theme.colorScheme.outline)),
                           ],
                         ),
                       )
@@ -145,24 +184,40 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
-                              title: Text(mem.key, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                              title: Text(mem.key,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14)),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const SizedBox(height: 4),
-                                  Text(mem.value, maxLines: 3, overflow: TextOverflow.ellipsis),
+                                  Text(mem.value,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis),
                                   if (mem.tags.isNotEmpty) ...[
                                     const SizedBox(height: 4),
                                     Wrap(
                                       spacing: 4,
-                                      children: mem.tags.map((t) => Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: theme.colorScheme.primaryContainer,
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(t, style: TextStyle(fontSize: 10, color: theme.colorScheme.onPrimaryContainer)),
-                                      )).toList(),
+                                      children: mem.tags
+                                          .map((t) => Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 1),
+                                                decoration: BoxDecoration(
+                                                  color: theme.colorScheme
+                                                      .primaryContainer,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Text(t,
+                                                    style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: theme.colorScheme
+                                                            .onPrimaryContainer)),
+                                              ))
+                                          .toList(),
                                     ),
                                   ],
                                 ],
@@ -173,17 +228,24 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                                   IconButton(
                                     icon: const Icon(Icons.copy, size: 18),
                                     onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: '${mem.key}: ${mem.value}'));
-                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+                                      Clipboard.setData(ClipboardData(
+                                          text: '${mem.key}: ${mem.value}'));
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text('已复制'),
+                                              duration: Duration(seconds: 1)));
                                     },
                                   ),
                                   IconButton(
-                                    icon: Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
+                                    icon: Icon(Icons.delete_outline,
+                                        size: 18,
+                                        color: theme.colorScheme.error),
                                     onPressed: () => _deleteMemory(mem),
                                   ),
                                 ],
                               ),
-                              isThreeLine: mem.tags.isNotEmpty || mem.value.length > 40,
+                              isThreeLine:
+                                  mem.tags.isNotEmpty || mem.value.length > 40,
                             ),
                           );
                         },

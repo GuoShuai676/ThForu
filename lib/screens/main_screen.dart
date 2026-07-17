@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'conversations_screen.dart';
 import 'github_screen.dart';
 import 'terminal_screen.dart';
+import 'skills_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -16,6 +17,7 @@ class _MainScreenState extends State<MainScreen> {
 
   final _screens = const [
     ConversationsScreen(),
+    SkillsScreen(),
     TerminalScreen(),
     GitHubScreen(),
   ];
@@ -33,7 +35,8 @@ class _MainScreenState extends State<MainScreen> {
           return;
         }
         final now = DateTime.now();
-        if (_lastBackPress != null && now.difference(_lastBackPress!) < const Duration(seconds: 2)) {
+        if (_lastBackPress != null &&
+            now.difference(_lastBackPress!) < const Duration(seconds: 2)) {
           SystemNavigator.pop();
           return;
         }
@@ -58,6 +61,11 @@ class _MainScreenState extends State<MainScreen> {
               icon: Icon(Icons.chat_bubble_outline),
               selectedIcon: Icon(Icons.chat_bubble),
               label: '聊天',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.auto_awesome_outlined),
+              selectedIcon: Icon(Icons.auto_awesome),
+              label: '技能',
             ),
             NavigationDestination(
               icon: Icon(Icons.terminal),

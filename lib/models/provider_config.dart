@@ -33,7 +33,9 @@ class AIProviderConfig {
     if (customChatEndpoint != null && customChatEndpoint!.trim().isNotEmpty) {
       return customChatEndpoint!.trim();
     }
-    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    final base = baseUrl.endsWith('/')
+        ? baseUrl.substring(0, baseUrl.length - 1)
+        : baseUrl;
     return '$base/chat/completions';
   }
 
@@ -41,7 +43,9 @@ class AIProviderConfig {
       audioEndpoint ?? '$baseUrl/audio/transcriptions';
 
   String get modelsEndpoint {
-    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    final base = baseUrl.endsWith('/')
+        ? baseUrl.substring(0, baseUrl.length - 1)
+        : baseUrl;
     return '$base/models';
   }
 
@@ -128,7 +132,13 @@ class AIProviderConfig {
       apiKey: '',
       modelName: 'qwen3-max',
       supportsVision: true,
-      availableModels: ['qwen3-max', 'qwen3-plus', 'qwen3-vl-max', 'qwen3-vl-plus', 'qwen3-coder'],
+      availableModels: [
+        'qwen3-max',
+        'qwen3-plus',
+        'qwen3-vl-max',
+        'qwen3-vl-plus',
+        'qwen3-coder'
+      ],
     ),
     'openai': AIProviderConfig(
       name: 'OpenAI GPT-4.1',

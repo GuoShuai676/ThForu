@@ -9,7 +9,8 @@ class FavoritesScreen extends ConsumerStatefulWidget {
   ConsumerState<FavoritesScreen> createState() => _FavoritesScreenState();
 }
 
-class _FavoritesScreenState extends ConsumerState<FavoritesScreen> with RouteAware {
+class _FavoritesScreenState extends ConsumerState<FavoritesScreen>
+    with RouteAware {
   List<Map<String, dynamic>>? _favorites;
 
   @override
@@ -61,12 +62,12 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> with RouteAwa
                           size: 64, color: theme.colorScheme.outline),
                       const SizedBox(height: 16),
                       Text('还没有收藏的消息',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                              color: theme.colorScheme.outline)),
+                          style: theme.textTheme.bodyLarge
+                              ?.copyWith(color: theme.colorScheme.outline)),
                       const SizedBox(height: 8),
                       Text('长按消息可以收藏',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline)),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.outline)),
                     ],
                   ),
                 )
@@ -82,12 +83,12 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> with RouteAwa
                     final msgId = item['id'] as String;
 
                     return ListTile(
-                      leading: const Icon(Icons.star,
-                          color: Colors.amber, size: 20),
+                      leading:
+                          const Icon(Icons.star, color: Colors.amber, size: 20),
                       title: Text(
                         title,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.primary),
+                        style: theme.textTheme.labelMedium
+                            ?.copyWith(color: theme.colorScheme.primary),
                       ),
                       subtitle: Text(
                         content.length > 80

@@ -1,4 +1,4 @@
-﻿import 'database_helper.dart';
+import 'database_helper.dart';
 import '../models/message.dart';
 
 class MessageDao {
@@ -18,7 +18,8 @@ class MessageDao {
     await db.insert('messages', msg.toMap());
   }
 
-  Future<void> updateContent(String conversationId, String id, String content) async {
+  Future<void> updateContent(
+      String conversationId, String id, String content) async {
     final db = await DatabaseHelper.database;
     await db.update(
       'messages',
@@ -30,7 +31,8 @@ class MessageDao {
 
   Future<void> deleteByConversation(String conversationId) async {
     final db = await DatabaseHelper.database;
-    await db.delete('messages', where: 'conversation_id = ?', whereArgs: [conversationId]);
+    await db.delete('messages',
+        where: 'conversation_id = ?', whereArgs: [conversationId]);
   }
 
   Future<void> deleteById(String conversationId, String messageId) async {
@@ -67,9 +69,11 @@ class MessageDao {
     return maps.map((m) => m['conversation_id'] as String).toSet();
   }
 
-  Future<void> deleteAfterMessage(String conversationId, String messageId) async {
+  Future<void> deleteAfterMessage(
+      String conversationId, String messageId) async {
     final db = await DatabaseHelper.database;
-    final msg = await db.query('messages', where: 'id = ?', whereArgs: [messageId]);
+    final msg =
+        await db.query('messages', where: 'id = ?', whereArgs: [messageId]);
     if (msg.isEmpty) return;
     final createdAt = msg.first['created_at'] as int;
     await db.delete(

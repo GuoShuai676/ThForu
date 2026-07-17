@@ -4,8 +4,8 @@ class Persona {
   final String id;
   final String name;
   final String systemPrompt;
-  final int avatarIcon;   // Icons.codePoint
-  final int avatarColor;  // Color.value
+  final int avatarIcon; // Icons.codePoint
+  final int avatarColor; // Color.value
 
   Persona({
     String? id,

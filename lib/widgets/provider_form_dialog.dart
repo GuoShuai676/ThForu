@@ -31,6 +31,8 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
   bool _fetchingModels = false;
   List<String>? _fetchedModels;
   String? _fetchError;
+  final List<String> _modelAliasOrder = [];
+  final Map<String, TextEditingController> _modelAliasCtrls = {};
 
   @override
   void initState() {
@@ -51,6 +53,11 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
         _headerOrder.add(entry.key);
         _headerKeys[entry.key] = TextEditingController(text: entry.key);
         _headerValues[entry.key] = TextEditingController(text: entry.value);
+      }
+      for (final model in e.availableModels) {
+        final id = 'alias_${_modelAliasOrder.length}';
+        _modelAliasOrder.add(id);
+        _modelAliasCtrls[id] = TextEditingController(text: model);
       }
       _detectPreset();
     }
@@ -96,6 +103,9 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
     for (final ctrl in _headerValues.values) {
       ctrl.dispose();
     }
+    for (final ctrl in _modelAliasCtrls.values) {
+      ctrl.dispose();
+    }
     super.dispose();
   }
 
@@ -130,14 +140,42 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
     return headers;
   }
 
+  void _addModelAlias() {
+    final id = 'alias_${DateTime.now().millisecondsSinceEpoch}';
+    setState(() {
+      _modelAliasOrder.add(id);
+      _modelAliasCtrls[id] = TextEditingController();
+    });
+  }
+
+  void _removeModelAlias(String id) {
+    setState(() {
+      _modelAliasOrder.remove(id);
+      _modelAliasCtrls[id]?.dispose();
+      _modelAliasCtrls.remove(id);
+    });
+  }
+
+  List<String> _collectModelAliases() {
+    final aliases = <String>[];
+    for (final id in _modelAliasOrder) {
+      final name = _modelAliasCtrls[id]?.text.trim() ?? '';
+      if (name.isNotEmpty) {
+        aliases.add(name);
+      }
+    }
+    return aliases;
+  }
+
   void _save() {
     if (_nameCtrl.text.trim().isEmpty || _baseUrlCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('名称和 Base URL 不能为空')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('名称和 Base URL 不能为空')));
       return;
     }
     String baseUrl = _baseUrlCtrl.text.trim();
-    if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+    if (baseUrl.endsWith('/'))
+      baseUrl = baseUrl.substring(0, baseUrl.length - 1);
     final chatEp = _chatEndpointCtrl.text.trim();
     final config = AIProviderConfig(
       id: widget.existing?.id,
@@ -147,12 +185,13 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
       modelName: _modelCtrl.text.trim(),
       supportsVision: _supportsVision,
       supportsFile: _supportsFile,
-      audioEndpoint: _audioCtrl.text.trim().isEmpty ? null : _audioCtrl.text.trim(),
+      audioEndpoint:
+          _audioCtrl.text.trim().isEmpty ? null : _audioCtrl.text.trim(),
       customChatEndpoint: chatEp.isEmpty ? null : chatEp,
       customHeaders: _collectHeaders(),
       availableModels: _preset != 'custom'
           ? _presets[_preset]?.availableModels ?? []
-          : (widget.existing?.availableModels ?? []),
+          : _collectModelAliases(),
     );
     Navigator.pop(context, config);
   }
@@ -171,13 +210,16 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
     });
     try {
       String baseUrl = _baseUrlCtrl.text.trim();
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final testConfig = AIProviderConfig(
         name: _nameCtrl.text.trim(),
         baseUrl: baseUrl,
         apiKey: _apiKeyCtrl.text.trim(),
         modelName: _modelCtrl.text.trim(),
-        customChatEndpoint: _chatEndpointCtrl.text.trim().isEmpty ? null : _chatEndpointCtrl.text.trim(),
+        customChatEndpoint: _chatEndpointCtrl.text.trim().isEmpty
+            ? null
+            : _chatEndpointCtrl.text.trim(),
         customHeaders: _collectHeaders(),
       );
       final service = AiService(testConfig);
@@ -212,13 +254,16 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
     });
     try {
       String baseUrl = _baseUrlCtrl.text.trim();
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      if (baseUrl.endsWith('/'))
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final testConfig = AIProviderConfig(
         name: _nameCtrl.text.trim(),
         baseUrl: baseUrl,
         apiKey: _apiKeyCtrl.text.trim(),
         modelName: _modelCtrl.text.trim(),
-        customChatEndpoint: _chatEndpointCtrl.text.trim().isEmpty ? null : _chatEndpointCtrl.text.trim(),
+        customChatEndpoint: _chatEndpointCtrl.text.trim().isEmpty
+            ? null
+            : _chatEndpointCtrl.text.trim(),
         customHeaders: _collectHeaders(),
       );
       final service = AiService(testConfig);
@@ -310,16 +355,19 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
                 onTap: () => _applyPreset(k),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: selected
                         ? theme.colorScheme.primaryContainer
-                        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                        : theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: selected
                           ? theme.colorScheme.primary
-                          : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                          : theme.colorScheme.outlineVariant
+                              .withValues(alpha: 0.3),
                       width: selected ? 1.5 : 1,
                     ),
                   ),
@@ -340,29 +388,38 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
               onTap: () => _applyPreset('custom'),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   color: _preset == 'custom'
                       ? theme.colorScheme.primaryContainer
-                      : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      : theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: _preset == 'custom'
                         ? theme.colorScheme.primary
-                        : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                        : theme.colorScheme.outlineVariant
+                            .withValues(alpha: 0.3),
                     width: _preset == 'custom' ? 1.5 : 1,
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.tune, size: 14, color: _preset == 'custom' ? theme.colorScheme.primary : null),
+                    Icon(Icons.tune,
+                        size: 14,
+                        color: _preset == 'custom'
+                            ? theme.colorScheme.primary
+                            : null),
                     const SizedBox(width: 4),
                     Text(
                       '自定义',
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: _preset == 'custom' ? FontWeight.w600 : FontWeight.w400,
+                        fontWeight: _preset == 'custom'
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                         color: _preset == 'custom'
                             ? theme.colorScheme.onPrimaryContainer
                             : theme.colorScheme.onSurfaceVariant,
@@ -442,7 +499,8 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
               models = widget.existing?.availableModels ?? <String>[];
             }
             if (v.text.isEmpty) return models;
-            return models.where((m) => m.toLowerCase().contains(v.text.toLowerCase()));
+            return models
+                .where((m) => m.toLowerCase().contains(v.text.toLowerCase()));
           },
           onSelected: (value) => _modelCtrl.text = value,
           fieldViewBuilder: (context, ctrl, focus, submit) {
@@ -488,39 +546,149 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
         if (_fetchedModels != null && _fetchedModels!.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _fetchedModels!.take(20).map((m) {
-                return GestureDetector(
-                  onTap: () => _modelCtrl.text = m,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _modelCtrl.text == m
-                          ? theme.colorScheme.primaryContainer
-                          : theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _modelCtrl.text == m
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('点击模型名称加入预设列表',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: theme.colorScheme.outline)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _fetchedModels!.take(30).map((m) {
+                    final alreadyAdded = _modelAliasOrder
+                        .any((id) => _modelAliasCtrls[id]?.text.trim() == m);
+                    return GestureDetector(
+                      onTap: () {
+                        if (!alreadyAdded) {
+                          final id =
+                              'alias_${DateTime.now().millisecondsSinceEpoch}';
+                          setState(() {
+                            _modelAliasOrder.add(id);
+                            _modelAliasCtrls[id] =
+                                TextEditingController(text: m);
+                          });
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: alreadyAdded
+                              ? theme.colorScheme.primaryContainer
+                              : theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: alreadyAdded
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              m,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: alreadyAdded
+                                    ? theme.colorScheme.onPrimaryContainer
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            if (alreadyAdded) ...[
+                              const SizedBox(width: 4),
+                              Icon(Icons.check,
+                                  size: 12, color: theme.colorScheme.primary),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
-                    child: Text(
-                      m,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: _modelCtrl.text == m
-                            ? theme.colorScheme.onPrimaryContainer
-                            : theme.colorScheme.onSurfaceVariant,
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 16),
+        _buildModelAliasesEditor(theme),
+      ],
+    );
+  }
+
+  Widget _buildModelAliasesEditor(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              '预设模型列表',
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '(可添加多个，聊天时动态切换)',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _addModelAlias,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('添加'),
+            ),
+          ],
+        ),
+        if (_modelAliasOrder.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color:
+                      theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+            ),
+            child: Center(
+              child: Text('未添加预设模型',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline)),
+            ),
+          )
+        else
+          ..._modelAliasOrder.map((id) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _modelAliasCtrls[id],
+                      decoration: InputDecoration(
+                        hintText: '模型名称，如 gpt-4o',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 10),
+                        prefixIcon:
+                            const Icon(Icons.smart_toy_outlined, size: 18),
                       ),
                     ),
                   ),
-                );
-              }).toList(),
-            ),
-          ),
+                  IconButton(
+                    icon: Icon(Icons.close,
+                        size: 20, color: theme.colorScheme.error),
+                    onPressed: () => _removeModelAlias(id),
+                  ),
+                ],
+              ),
+            );
+          }),
       ],
     );
   }
@@ -562,7 +730,9 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
         AnimatedCrossFade(
           firstChild: const SizedBox.shrink(),
           secondChild: _buildAdvancedContent(theme),
-          crossFadeState: _showAdvanced ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          crossFadeState: _showAdvanced
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
           duration: const Duration(milliseconds: 250),
         ),
       ],
@@ -633,7 +803,8 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
@@ -662,7 +833,8 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
                         hintText: 'Header 名称',
                         border: const OutlineInputBorder(),
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 10),
                       ),
                     ),
                   ),
@@ -678,12 +850,14 @@ class _ProviderFormDialogState extends State<ProviderFormDialog> {
                         hintText: '值',
                         border: const OutlineInputBorder(),
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 10),
                       ),
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.close, size: 20, color: theme.colorScheme.error),
+                    icon: Icon(Icons.close,
+                        size: 20, color: theme.colorScheme.error),
                     onPressed: () => _removeHeader(id),
                   ),
                 ],

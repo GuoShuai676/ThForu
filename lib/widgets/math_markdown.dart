@@ -43,8 +43,8 @@ class MathMarkdown extends StatelessWidget {
         pos = b.end;
       }
       if (pos < data.length) {
-        children.add(_renderTextSegment(
-            data.substring(pos), styleSheet, selectable));
+        children.add(
+            _renderTextSegment(data.substring(pos), styleSheet, selectable));
       }
 
       return Column(
@@ -85,8 +85,8 @@ Widget _renderTextSegment(
   if (tableInfo != null) {
     final children = <Widget>[];
     if (tableInfo.before.isNotEmpty) {
-      children.add(_renderTextSegment(
-          tableInfo.before, styleSheet, selectable));
+      children
+          .add(_renderTextSegment(tableInfo.before, styleSheet, selectable));
     }
     children.add(_TableBlock(
       tableMarkdown: tableInfo.table,
@@ -94,8 +94,7 @@ Widget _renderTextSegment(
       selectable: selectable,
     ));
     if (tableInfo.after.isNotEmpty) {
-      children.add(_renderTextSegment(
-          tableInfo.after, styleSheet, selectable));
+      children.add(_renderTextSegment(tableInfo.after, styleSheet, selectable));
     }
     if (children.length == 1) return children.first;
     return Column(
@@ -153,7 +152,8 @@ class _TableInfo {
   final String before;
   final String table;
   final String after;
-  const _TableInfo({required this.before, required this.table, required this.after});
+  const _TableInfo(
+      {required this.before, required this.table, required this.after});
 }
 
 bool _isTableHeader(String line) {
@@ -191,10 +191,8 @@ class _TableBlock extends StatelessWidget {
 
   /// Build the actual [Table] widget (shared by inline and fullscreen).
   Table _buildTable(ThemeData theme, TextStyle baseStyle) {
-    final lines = tableMarkdown
-        .split('\n')
-        .where((l) => l.trim().isNotEmpty)
-        .toList();
+    final lines =
+        tableMarkdown.split('\n').where((l) => l.trim().isNotEmpty).toList();
     final headers = _splitRow(lines[0]);
     final colCount = headers.length;
     final bodyRows = <List<String>>[];
@@ -247,7 +245,8 @@ class _TableBlock extends StatelessWidget {
           return TableRow(
             children: List.generate(colCount, (c) {
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: _MathCell(
                   content: c < row.length ? row[c].trim() : '',
                   baseStyle: baseStyle,
@@ -264,10 +263,8 @@ class _TableBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final lines = tableMarkdown
-        .split('\n')
-        .where((l) => l.trim().isNotEmpty)
-        .toList();
+    final lines =
+        tableMarkdown.split('\n').where((l) => l.trim().isNotEmpty).toList();
     if (lines.length < 2) {
       return _renderTextSegment(tableMarkdown, styleSheet, selectable);
     }
@@ -290,7 +287,8 @@ class _TableBlock extends StatelessWidget {
     );
   }
 
-  void _showTableFullscreen(BuildContext context, ThemeData theme, TextStyle baseStyle) {
+  void _showTableFullscreen(
+      BuildContext context, ThemeData theme, TextStyle baseStyle) {
     FocusScope.of(context).unfocus();
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -409,7 +407,8 @@ Widget _parseCellMarkdown(String text, TextStyle style) {
     if (m.start > pos) {
       spans.add(TextSpan(text: text.substring(pos, m.start), style: style));
     }
-    spans.add(TextSpan(text: m.group(1), style: style.copyWith(fontWeight: FontWeight.bold)));
+    spans.add(TextSpan(
+        text: m.group(1), style: style.copyWith(fontWeight: FontWeight.bold)));
     pos = m.end;
   }
   if (pos < text.length) {
@@ -439,7 +438,7 @@ String _cellToLatex(String cell) {
     if (m.start > pos) {
       final text = _cleanFormula(cell.substring(pos, m.start)).trim();
       if (text.isNotEmpty) {
-        parts.add(r'\text{' '$text' '}');  // adjacent literals → one string
+        parts.add(r'\text{' '$text' '}'); // adjacent literals → one string
       }
     }
     // Get formula from whichever group matched
@@ -561,11 +560,11 @@ final _inlineDisplayMathRe = RegExp(r'\$\$([^$]+?)\$\$');
 String _cleanFormula(String raw) {
   var s = raw
       // Invisible / zero-width characters
-      .replaceAll('​', '')  // zero-width space
-      .replaceAll('‌', '')  // zero-width non-joiner
-      .replaceAll('‍', '')  // zero-width joiner
-      .replaceAll('⁠', '')  // word joiner
-      .replaceAll('﻿', '')  // BOM / zero-width no-break space
+      .replaceAll('​', '') // zero-width space
+      .replaceAll('‌', '') // zero-width non-joiner
+      .replaceAll('‍', '') // zero-width joiner
+      .replaceAll('⁠', '') // word joiner
+      .replaceAll('﻿', '') // BOM / zero-width no-break space
       // Full-width spaces
       .replaceAll('　', ' ')
       // Other common invisible chars
@@ -608,11 +607,17 @@ String _preprocessLatex(String latex) {
   var s = latex;
 
   // --- 1. Strip whole-line declarations (must precede env detection) ---
-  s = s.replaceAll(RegExp(r'\\DeclareMathOperator\s*\*?\s*\{\\.+?\}\s*\{[^}]*\}'), '');
-  s = s.replaceAll(RegExp(r'\\newcommand\s*\*?\s*\{\\.+?\}\s*(\[\d+\])?\s*\{[^}]*\}'), '');
-  s = s.replaceAll(RegExp(r'\\renewcommand\s*\*?\s*\{\\.+?\}\s*(\[\d+\])?\s*\{[^}]*\}'), '');
+  s = s.replaceAll(
+      RegExp(r'\\DeclareMathOperator\s*\*?\s*\{\\.+?\}\s*\{[^}]*\}'), '');
+  s = s.replaceAll(
+      RegExp(r'\\newcommand\s*\*?\s*\{\\.+?\}\s*(\[\d+\])?\s*\{[^}]*\}'), '');
+  s = s.replaceAll(
+      RegExp(r'\\renewcommand\s*\*?\s*\{\\.+?\}\s*(\[\d+\])?\s*\{[^}]*\}'), '');
   s = s.replaceAll(RegExp(r'\\def\s*\\.+?\{[^}]*\}'), '');
-  s = s.replaceAll(RegExp(r'\\newenvironment\s*\{[^}]*\}\s*(\[\d+\])?\s*\{[^}]*\}\s*\{[^}]*\}'), '');
+  s = s.replaceAll(
+      RegExp(
+          r'\\newenvironment\s*\{[^}]*\}\s*(\[\d+\])?\s*\{[^}]*\}\s*\{[^}]*\}'),
+      '');
   s = s.replaceAll(RegExp(r'\\usepackage\s*(\[[^]]*\])?\s*\{[^}]*\}'), '');
 
   // --- 2. Convert unsupported top-level environments ---
@@ -664,24 +669,104 @@ String _preprocessLatex(String latex) {
   s = s.replaceAll('\\cdotp', r'\cdot p');
   // Known command names that might get concatenated with following text.
   final knownCmds = [
-    'cdotp', 'cdot', 'times', 'div', 'pm', 'mp',
-    'sin', 'cos', 'tan', 'cot', 'sec', 'csc',
-    'log', 'ln', 'exp', 'lim', 'max', 'min',
-    'inf', 'sup', 'det', 'dim', 'arg', 'hom',
-    'gcd', 'lcm', 'deg', 'mod', 'bmod',
-    'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta',
-    'eta', 'theta', 'iota', 'kappa', 'lambda', 'mu',
-    'nu', 'xi', 'pi', 'rho', 'sigma', 'tau',
-    'upsilon', 'phi', 'chi', 'psi', 'omega',
-    'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi',
-    'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega',
-    'partial', 'nabla', 'infty', 'emptyset', 'forall', 'exists',
-    'leq', 'geq', 'neq', 'approx', 'equiv', 'sim',
-    'subset', 'supset', 'in', 'notin', 'cap', 'cup',
-    'int', 'sum', 'prod', 'coprod', 'oint',
-    'leftarrow', 'rightarrow', 'leftrightarrow', 'Leftarrow', 'Rightarrow',
-    'uparrow', 'downarrow', 'Uparrow', 'Downarrow',
-    'Rightarrow', 'Leftarrow', 'Leftrightarrow',
+    'cdotp',
+    'cdot',
+    'times',
+    'div',
+    'pm',
+    'mp',
+    'sin',
+    'cos',
+    'tan',
+    'cot',
+    'sec',
+    'csc',
+    'log',
+    'ln',
+    'exp',
+    'lim',
+    'max',
+    'min',
+    'inf',
+    'sup',
+    'det',
+    'dim',
+    'arg',
+    'hom',
+    'gcd',
+    'lcm',
+    'deg',
+    'mod',
+    'bmod',
+    'alpha',
+    'beta',
+    'gamma',
+    'delta',
+    'epsilon',
+    'zeta',
+    'eta',
+    'theta',
+    'iota',
+    'kappa',
+    'lambda',
+    'mu',
+    'nu',
+    'xi',
+    'pi',
+    'rho',
+    'sigma',
+    'tau',
+    'upsilon',
+    'phi',
+    'chi',
+    'psi',
+    'omega',
+    'Gamma',
+    'Delta',
+    'Theta',
+    'Lambda',
+    'Xi',
+    'Pi',
+    'Sigma',
+    'Upsilon',
+    'Phi',
+    'Psi',
+    'Omega',
+    'partial',
+    'nabla',
+    'infty',
+    'emptyset',
+    'forall',
+    'exists',
+    'leq',
+    'geq',
+    'neq',
+    'approx',
+    'equiv',
+    'sim',
+    'subset',
+    'supset',
+    'in',
+    'notin',
+    'cap',
+    'cup',
+    'int',
+    'sum',
+    'prod',
+    'coprod',
+    'oint',
+    'leftarrow',
+    'rightarrow',
+    'leftrightarrow',
+    'Leftarrow',
+    'Rightarrow',
+    'uparrow',
+    'downarrow',
+    'Uparrow',
+    'Downarrow',
+    'Rightarrow',
+    'Leftarrow',
+    'Leftrightarrow',
   ];
   for (final cmd in knownCmds) {
     // Match \cmd followed by a letter (not space, {, or end)
@@ -726,9 +811,12 @@ String _preprocessLatex(String latex) {
     (m) => '${m.group(1) ?? ''}\\,${m.group(2) ?? ''}',
   );
   // \cancel, \bcancel, \xcancel — strip command, keep content
-  s = s.replaceAllMapped(RegExp(r'\\cancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
-  s = s.replaceAllMapped(RegExp(r'\\bcancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
-  s = s.replaceAllMapped(RegExp(r'\\xcancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
+  s = s.replaceAllMapped(
+      RegExp(r'\\cancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
+  s = s.replaceAllMapped(
+      RegExp(r'\\bcancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
+  s = s.replaceAllMapped(
+      RegExp(r'\\xcancel\s*\{([^}]*)\}'), (m) => m.group(1) ?? '');
   // \operatorname{…} → \mathrm{…}
   s = s.replaceAllMapped(
     RegExp(r'\\operatorname\s*\{([^}]*)\}'),
@@ -817,27 +905,30 @@ class _InlineRichSegment extends StatelessWidget {
     return text
         // Inline $...$
         .replaceAllMapped(
-          RegExp(r'(?<!\$)\$(?!\$)(.+?)\$(?!\$)'),
-          (m) {
-            final inner = (m.group(1) ?? '').replaceAll('_', r'\_');
-            return '\$$inner\$';
-          },
-        )
+      RegExp(r'(?<!\$)\$(?!\$)(.+?)\$(?!\$)'),
+      (m) {
+        final inner = (m.group(1) ?? '').replaceAll('_', r'\_');
+        return '\$$inner\$';
+      },
+    )
         // Display $$...$$
         .replaceAllMapped(
-          RegExp(r'\$\$(.+?)\$\$'),
-          (m) {
-            final inner = (m.group(1) ?? '').replaceAll('_', r'\_');
-            return '\$\$$inner\$\$';
-          },
-        );
+      RegExp(r'\$\$(.+?)\$\$'),
+      (m) {
+        final inner = (m.group(1) ?? '').replaceAll('_', r'\_');
+        return '\$\$$inner\$\$';
+      },
+    );
   }
 
   /// Extract fenced code blocks from [text] and return:
   /// - [segments]: alternating text / code-block widgets (text first)
   /// Returns null if no fenced code blocks found.
   static ({List<Widget> children, bool hasContent})? _extractFencedCode(
-    String text, MarkdownStyleSheet? styleSheet, bool selectable, ThemeData theme) {
+      String text,
+      MarkdownStyleSheet? styleSheet,
+      bool selectable,
+      ThemeData theme) {
     final fenceRe = RegExp(r'^```', multiLine: true);
     final matches = fenceRe.allMatches(text).toList();
     if (matches.length < 2) return null;
@@ -876,8 +967,8 @@ class _InlineRichSegment extends StatelessWidget {
 
     // Remaining text after last code block
     if (pos < text.length) {
-      children.add(_renderTextSegment(
-          text.substring(pos), styleSheet, selectable));
+      children
+          .add(_renderTextSegment(text.substring(pos), styleSheet, selectable));
     }
 
     return (children: children, hasContent: true);
@@ -904,7 +995,8 @@ class _InlineRichSegment extends StatelessWidget {
   }
 
   /// Open blockquote content in fullscreen viewer
-  void _openBlockquoteFullscreen(BuildContext context, String content, TextStyle baseStyle) {
+  void _openBlockquoteFullscreen(
+      BuildContext context, String content, TextStyle baseStyle) {
     FocusScope.of(context).unfocus();
     final theme = Theme.of(context);
     Navigator.of(context).push(
@@ -985,7 +1077,9 @@ class _InlineRichSegment extends StatelessWidget {
         return '$indent**${trimmed.substring(3)}**';
       } else if (trimmed.startsWith('# ')) {
         return '$indent**${trimmed.substring(2)}**';
-      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('+ ')) {
+      } else if (trimmed.startsWith('- ') ||
+          trimmed.startsWith('* ') ||
+          trimmed.startsWith('+ ')) {
         return '• ${trimmed.substring(2)}';
       }
       return line;
@@ -996,11 +1090,13 @@ class _InlineRichSegment extends StatelessWidget {
     final patterns = <_MdPattern>[
       _MdPattern(RegExp(r'\*\*(.+?)\*\*'), (m, style) {
         return TextSpan(
-            text: m.group(1), style: style.copyWith(fontWeight: FontWeight.bold));
+            text: m.group(1),
+            style: style.copyWith(fontWeight: FontWeight.bold));
       }),
       _MdPattern(RegExp(r'\*(.+?)\*'), (m, style) {
         return TextSpan(
-            text: m.group(1), style: style.copyWith(fontStyle: FontStyle.italic));
+            text: m.group(1),
+            style: style.copyWith(fontStyle: FontStyle.italic));
       }),
       _MdPattern(RegExp(r'`([^`]+)`'), (m, style) {
         return TextSpan(
@@ -1031,7 +1127,10 @@ class _InlineRichSegment extends StatelessWidget {
   }
 
   static TextSpan _parseMdRecursive(
-    String s, TextStyle base, Color? linkColor, List<_MdPattern> patterns,
+    String s,
+    TextStyle base,
+    Color? linkColor,
+    List<_MdPattern> patterns,
   ) {
     if (s.isEmpty) return const TextSpan(text: '');
 
@@ -1056,11 +1155,12 @@ class _InlineRichSegment extends StatelessWidget {
     }
     children.add(bestPat.builder(best, base));
     if (best.end < s.length) {
-      children.add(_parseMdRecursive(
-          s.substring(best.end), base, linkColor, patterns));
+      children.add(
+          _parseMdRecursive(s.substring(best.end), base, linkColor, patterns));
     }
     return TextSpan(children: children);
   }
+
   /// Collapse repeated blank lines, strip redundant horizontal rules,
   /// and normalise separators so Flutter's flow layout doesn't fragment.
   static String _normalizeText(String t) {
@@ -1110,7 +1210,8 @@ class _InlineRichSegment extends StatelessWidget {
       final theme = Theme.of(context);
 
       final baseStyle = styleSheet?.p ??
-          theme.textTheme.bodyMedium ?? const TextStyle(fontSize: 14);
+          theme.textTheme.bodyMedium ??
+          const TextStyle(fontSize: 14);
       final linkColor = theme.colorScheme.primary;
 
       // Code blocks / blockquotes → handle with protections
@@ -1148,10 +1249,12 @@ class _InlineRichSegment extends StatelessWidget {
               children: [
                 // Zoom button
                 GestureDetector(
-                  onTap: () => _openBlockquoteFullscreen(context, stripped, baseStyle),
+                  onTap: () =>
+                      _openBlockquoteFullscreen(context, stripped, baseStyle),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1161,7 +1264,9 @@ class _InlineRichSegment extends StatelessWidget {
                           onTap: () {
                             Clipboard.setData(ClipboardData(text: stripped));
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)),
+                              const SnackBar(
+                                  content: Text('已复制'),
+                                  duration: Duration(seconds: 1)),
                             );
                           },
                           theme: theme,
@@ -1170,7 +1275,8 @@ class _InlineRichSegment extends StatelessWidget {
                         _ActionChip(
                           icon: Icons.zoom_in,
                           label: '放大',
-                          onTap: () => _openBlockquoteFullscreen(context, stripped, baseStyle),
+                          onTap: () => _openBlockquoteFullscreen(
+                              context, stripped, baseStyle),
                           theme: theme,
                         ),
                       ],
@@ -1190,13 +1296,13 @@ class _InlineRichSegment extends StatelessWidget {
         //    \mu*0* (markdown italic), then delegate to MarkdownBody.
         final safe = _protectUnderscoresInMath(s);
         return MarkdownBody(
-          data: safe, selectable: selectable, styleSheet: styleSheet);
+            data: safe, selectable: selectable, styleSheet: styleSheet);
       }
 
       if (formulaMode == FormulaDisplayMode.off) {
         return RichText(
-          text: _parseInlineMd(s, baseStyle, linkColor),
-          textWidthBasis: TextWidthBasis.longestLine);
+            text: _parseInlineMd(s, baseStyle, linkColor),
+            textWidthBasis: TextWidthBasis.longestLine);
       }
 
       final hasF = _inlineMathDollarRe.hasMatch(s) ||
@@ -1210,7 +1316,7 @@ class _InlineRichSegment extends StatelessWidget {
       if (hasLH) {
         final safe = _protectUnderscoresInMath(s);
         return MarkdownBody(
-          data: safe, selectable: selectable, styleSheet: styleSheet);
+            data: safe, selectable: selectable, styleSheet: styleSheet);
       }
       return _buildInlineWrap(s, baseStyle, linkColor);
     });
@@ -1218,7 +1324,8 @@ class _InlineRichSegment extends StatelessWidget {
 
   /// Renders [s] as a [RichText] with [WidgetSpan] for inline formulas,
   /// so formulas truly flow with the text instead of appearing on separate lines.
-  static Widget _buildInlineWrap(String s, TextStyle baseStyle, Color linkColor) {
+  static Widget _buildInlineWrap(
+      String s, TextStyle baseStyle, Color linkColor) {
     // Merge inline-math matches — $...$ , \(...\), and $$...$$ leftover after
     // block extraction (these are inline-display formulas, e.g. in paragraphs).
     final matches = <_InlineMatch>[];
@@ -1257,8 +1364,8 @@ class _InlineRichSegment extends StatelessWidget {
     int pos = 0;
     for (final m in filtered) {
       if (m.start > pos) {
-        spans.add(_parseInlineMd(
-            s.substring(pos, m.start), baseStyle, linkColor));
+        spans.add(
+            _parseInlineMd(s.substring(pos, m.start), baseStyle, linkColor));
       }
       final safeLatex = _safeLatex(m.formula);
       spans.add(WidgetSpan(
@@ -1272,8 +1379,7 @@ class _InlineRichSegment extends StatelessWidget {
       pos = m.end;
     }
     if (pos < s.length) {
-      spans.add(_parseInlineMd(
-          s.substring(pos), baseStyle, linkColor));
+      spans.add(_parseInlineMd(s.substring(pos), baseStyle, linkColor));
     }
 
     return RichText(
@@ -1318,9 +1424,10 @@ class _ActionChip extends StatelessWidget {
           children: [
             Icon(icon, size: 14, color: theme.colorScheme.primary),
             const SizedBox(width: 4),
-            Text(label, style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.primary,
-            )),
+            Text(label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                )),
           ],
         ),
       ),
@@ -1386,7 +1493,9 @@ class _CodeBlockWidget extends StatelessWidget {
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: code));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)),
+                        const SnackBar(
+                            content: Text('已复制'),
+                            duration: Duration(seconds: 1)),
                       );
                     },
                     theme: theme,
@@ -1454,13 +1563,13 @@ class _CodeViewerPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(language.isNotEmpty ? language : '代码'),
         actions: [
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () {
-                  FocusScope.of(context).unfocus();
-                  Navigator.pop(context);
-                },
-              ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () {
+              FocusScope.of(context).unfocus();
+              Navigator.pop(context);
+            },
+          ),
         ],
       ),
       body: InteractiveViewer(
@@ -1532,8 +1641,8 @@ class _DisplayMathBox extends ConsumerWidget {
     try {
       final mathWidget = Math.tex(
         safeFormula,
-        textStyle: theme.textTheme.titleLarge?.copyWith(
-            fontSize: 18, color: theme.colorScheme.onSurface),
+        textStyle: theme.textTheme.titleLarge
+            ?.copyWith(fontSize: 18, color: theme.colorScheme.onSurface),
         mathStyle: MathStyle.display,
       );
       return switch (mode) {
@@ -1548,8 +1657,11 @@ class _DisplayMathBox extends ConsumerWidget {
       return SelectableText(
         safeFormula,
         style: TextStyle(
-          fontFamily: 'monospace', fontSize: 17, height: 1.6,
-          color: theme.colorScheme.onSurface, letterSpacing: 0.3,
+          fontFamily: 'monospace',
+          fontSize: 17,
+          height: 1.6,
+          color: theme.colorScheme.onSurface,
+          letterSpacing: 0.3,
         ),
       );
     }

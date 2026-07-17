@@ -131,18 +131,24 @@ class _SvgBlockState extends State<SvgBlock> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.auto_awesome, size: 13,
-                  color: _failed ? theme.colorScheme.error : theme.colorScheme.primary),
+              Icon(Icons.auto_awesome,
+                  size: 13,
+                  color: _failed
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.primary),
               const SizedBox(width: 5),
               Text(_failed ? 'SVG (解析失败)' : 'SVG',
                   style: theme.textTheme.labelSmall?.copyWith(
-                      color: _failed ? theme.colorScheme.error : theme.colorScheme.primary)),
+                      color: _failed
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.primary)),
               if (_image != null) ...[
                 const Spacer(),
                 GestureDetector(
                   onTap: _openFullscreen,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
@@ -150,12 +156,13 @@ class _SvgBlockState extends State<SvgBlock> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.zoom_in, size: 14,
-                            color: theme.colorScheme.primary),
+                        Icon(Icons.zoom_in,
+                            size: 14, color: theme.colorScheme.primary),
                         const SizedBox(width: 4),
-                        Text('放大', style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                        )),
+                        Text('放大',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                            )),
                       ],
                     ),
                   ),
@@ -199,7 +206,9 @@ class _SvgBlockState extends State<SvgBlock> {
         child: SelectableText(
           widget.svgString,
           maxLines: 15,
-          style: TextStyle(fontFamily: 'monospace', fontSize: 11,
+          style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 11,
               color: theme.colorScheme.onSurface),
         ),
       ),

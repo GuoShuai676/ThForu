@@ -97,8 +97,8 @@ class Storage {
     await saveMessages(convId, all);
   }
 
-  Future<void> updateMessage(String id, String conversationId,
-      Map<String, dynamic> data) async {
+  Future<void> updateMessage(
+      String id, String conversationId, Map<String, dynamic> data) async {
     final all = getMessages(conversationId);
     final idx = all.indexWhere((m) => m['id'] == id);
     if (idx >= 0) {

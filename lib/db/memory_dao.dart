@@ -83,11 +83,13 @@ class MemoryDao {
         key: entry.key,
         value: entry.value,
         tags: entry.tags.isNotEmpty ? entry.tags : existing.tags,
-        sourceConversationId: entry.sourceConversationId ?? existing.sourceConversationId,
+        sourceConversationId:
+            entry.sourceConversationId ?? existing.sourceConversationId,
         createdAt: existing.createdAt,
         updatedAt: DateTime.now(),
       );
-      await db.update('memories', updated.toMap(), where: 'id = ?', whereArgs: [updated.id]);
+      await db.update('memories', updated.toMap(),
+          where: 'id = ?', whereArgs: [updated.id]);
     } else {
       await db.insert('memories', entry.toMap());
     }
@@ -110,10 +112,16 @@ class MemoryDao {
 
   Future<List<MemoryEntry>> getRelevant(String query, {int limit = 10}) async {
     final db = await DatabaseHelper.database;
-    final keywords = query.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length > 1).toList();
+    final keywords = query
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length > 1)
+        .toList();
     if (keywords.isEmpty) return getAll().then((v) => v.take(limit).toList());
 
-    final conditions = keywords.map((k) => '(key LIKE ? OR value LIKE ? OR tags LIKE ?)').join(' OR ');
+    final conditions = keywords
+        .map((k) => '(key LIKE ? OR value LIKE ? OR tags LIKE ?)')
+        .join(' OR ');
     final args = keywords.expand((k) => ['%$k%', '%$k%', '%$k%']).toList();
 
     final maps = await db.query(

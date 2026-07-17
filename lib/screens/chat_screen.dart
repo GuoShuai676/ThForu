@@ -1,4 +1,5 @@
-﻿import 'dart:io';
+import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -16,6 +17,7 @@ import '../widgets/chat_input_bar.dart';
 import '../widgets/expert_progress_widget.dart';
 import '../widgets/assistant_avatar.dart';
 import '../widgets/tool_execution_widget.dart';
+import '../widgets/companion_character.dart';
 import '../services/deep_search_service.dart';
 import '../services/word_generator.dart';
 
@@ -23,7 +25,8 @@ class ChatScreen extends ConsumerStatefulWidget {
   final String conversationId;
   final String? scrollToMessageId;
 
-  const ChatScreen({super.key, required this.conversationId, this.scrollToMessageId});
+  const ChatScreen(
+      {super.key, required this.conversationId, this.scrollToMessageId});
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -45,13 +48,60 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
   String? _lastSentFilePath;
   String? _lastSentFileName;
   bool _errorExpanded = false;
+  Offset? _companionPosition;
+
+  static const double _companionWidth = 72;
+  static const double _companionHeight = 108;
+
+  Offset _defaultCompanionPosition(Size size, EdgeInsets padding) {
+    return Offset(
+      size.width - _companionWidth - 12,
+      size.height - _companionHeight - padding.bottom - 88,
+    );
+  }
+
+  Offset _clampCompanionPosition(
+    Offset position,
+    Size size,
+    EdgeInsets padding,
+  ) {
+    const margin = 8.0;
+    final minX = margin;
+    final minY = margin + padding.top;
+    final maxX = math.max(minX, size.width - _companionWidth - margin);
+    final maxY = math.max(
+      minY,
+      size.height - _companionHeight - padding.bottom - 76,
+    );
+    return Offset(
+      position.dx.clamp(minX, maxX).toDouble(),
+      position.dy.clamp(minY, maxY).toDouble(),
+    );
+  }
+
+  void _moveCompanion(
+    DragUpdateDetails details,
+    Size size,
+    EdgeInsets padding,
+  ) {
+    final current =
+        _companionPosition ?? _defaultCompanionPosition(size, padding);
+    setState(() {
+      _companionPosition = _clampCompanionPosition(
+        current + details.delta,
+        size,
+        padding,
+      );
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _searchCtrl.addListener(_onSearchChanged);
     _scrollController.addListener(_onScroll);
-    if (widget.scrollToMessageId != null && widget.scrollToMessageId!.isNotEmpty) {
+    if (widget.scrollToMessageId != null &&
+        widget.scrollToMessageId!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) _scrollToMessage(widget.scrollToMessageId!);
@@ -120,7 +170,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     final maxExtent = _scrollController.position.maxScrollExtent;
     if (maxExtent <= 0) {
       // Layout not done yet — retry next frame
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottomInitial());
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _scrollToBottomInitial());
       return;
     }
     _scrollController.jumpTo(maxExtent);
@@ -165,10 +216,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     if (idx < 0) return; // message deleted?
 
     final listViewIndex = messages.length - 1 - idx;
-    final fraction = listViewIndex /
-        (messages.length > 1 ? messages.length - 1 : 1);
-    final estimate =
-        fraction * _scrollController.position.maxScrollExtent;
+    final fraction =
+        listViewIndex / (messages.length > 1 ? messages.length - 1 : 1);
+    final estimate = fraction * _scrollController.position.maxScrollExtent;
     _scrollController.jumpTo(estimate);
 
     if (retry < 8) {
@@ -272,8 +322,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       content.substring(start, end).replaceAll('\n', ' ') +
                       (end < content.length ? '…' : '');
                 } else {
-                  snippet = content.replaceAll('\n', ' ').substring(
-                      0, 120.clamp(0, content.length));
+                  snippet = content
+                      .replaceAll('\n', ' ')
+                      .substring(0, 120.clamp(0, content.length));
                   if (content.length > 120) snippet += '…';
                 }
 
@@ -305,39 +356,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
                                   children: [
                                     Text(
                                       isUser ? '你' : 'AI',
-                                      style: theme
-                                          .textTheme.labelSmall
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme.outline,
-                                            fontWeight:
-                                                FontWeight.w600,
-                                          ),
+                                      style:
+                                          theme.textTheme.labelSmall?.copyWith(
+                                        color: theme.colorScheme.outline,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                     const Spacer(),
                                     Text(
                                       timeStr,
-                                      style: theme
-                                          .textTheme.labelSmall
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme.outline,
-                                            fontSize: 11,
-                                          ),
+                                      style:
+                                          theme.textTheme.labelSmall?.copyWith(
+                                        color: theme.colorScheme.outline,
+                                        fontSize: 11,
+                                      ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 4),
                                 Text.rich(
                                   TextSpan(
-                                    children: _buildHighlightedSpans(snippet, _searchQuery, theme),
+                                    children: _buildHighlightedSpans(
+                                        snippet, _searchQuery, theme),
                                     style: theme.textTheme.bodySmall,
                                   ),
                                   maxLines: 4,
@@ -359,7 +405,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     );
   }
 
-  List<TextSpan> _buildHighlightedSpans(String text, String query, ThemeData theme) {
+  List<TextSpan> _buildHighlightedSpans(
+      String text, String query, ThemeData theme) {
     if (query.isEmpty) return [TextSpan(text: text)];
     final spans = <TextSpan>[];
     final lowerText = text.toLowerCase();
@@ -423,8 +470,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
         title: const Text('批量删除'),
         content: Text('确定删除 ${_selectedMessageIds.length} 条消息？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), style: FilledButton.styleFrom(backgroundColor: Colors.red), child: const Text('删除')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('删除')),
         ],
       ),
     );
@@ -433,7 +485,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       for (final id in _selectedMessageIds) {
         await notifier.deleteMessage(id);
       }
-      setState(() { _selectedMessageIds.clear(); _multiSelectMode = false; });
+      setState(() {
+        _selectedMessageIds.clear();
+        _multiSelectMode = false;
+      });
     }
   }
 
@@ -443,13 +498,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     for (final id in _selectedMessageIds) {
       await notifier.toggleFavorite(id);
     }
-    setState(() { _selectedMessageIds.clear(); _multiSelectMode = false; });
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已收藏 $count 条消息')));
+    setState(() {
+      _selectedMessageIds.clear();
+      _multiSelectMode = false;
+    });
+    if (mounted)
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已收藏 $count 条消息')));
   }
 
   Future<void> _batchExportWord() async {
     final chatState = ref.read(chatProvider(widget.conversationId));
-    final selected = chatState.messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
+    final selected = chatState.messages
+        .where((m) => _selectedMessageIds.contains(m.id))
+        .toList();
     if (selected.isEmpty) return;
 
     final nameCtrl = TextEditingController(text: '对话导出');
@@ -457,37 +519,60 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('导出 Word'),
-        content: TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '文件名')),
+        content: TextField(
+            controller: nameCtrl,
+            decoration: const InputDecoration(labelText: '文件名')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()), child: const Text('导出')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
+              child: const Text('导出')),
         ],
       ),
     );
     if (name == null || name.isEmpty) return;
 
-    final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+    final dir =
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
 
     try {
       final file = File('$dir/$name.docx');
-      final messages = selected.map((m) => {'role': m.role, 'content': _stripFormatting(m.content)}).toList();
-      await WordGenerator.generate(title: name, messages: messages, outputPath: file.path);
+      final messages = selected
+          .map((m) => {'role': m.role, 'content': _stripFormatting(m.content)})
+          .toList();
+      await WordGenerator.generate(
+          title: name, messages: messages, outputPath: file.path);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
         final result = await showModalBottomSheet<String>(
           context: context,
-          builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(leading: const Icon(Icons.share), title: const Text('分享文件'), onTap: () => Navigator.pop(ctx, 'share')),
-            ListTile(leading: const Icon(Icons.check), title: const Text('完成'), onTap: () => Navigator.pop(ctx)),
+          builder: (ctx) => SafeArea(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+                leading: const Icon(Icons.share),
+                title: const Text('分享文件'),
+                onTap: () => Navigator.pop(ctx, 'share')),
+            ListTile(
+                leading: const Icon(Icons.check),
+                title: const Text('完成'),
+                onTap: () => Navigator.pop(ctx)),
           ])),
         );
-        if (result == 'share') await Share.shareXFiles([XFile(file.path)], text: name);
+        if (result == 'share')
+          await Share.shareXFiles([XFile(file.path)], text: name);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
-    setState(() { _selectedMessageIds.clear(); _multiSelectMode = false; });
+    setState(() {
+      _selectedMessageIds.clear();
+      _multiSelectMode = false;
+    });
   }
 
   String _stripFormatting(String text) {
@@ -511,7 +596,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
 
   Future<void> _exportChatAsWord() async {
     final chatState = ref.read(chatProvider(widget.conversationId));
-    final conv = ref.read(conversationListProvider).where((c) => c.id == widget.conversationId).firstOrNull;
+    final conv = ref
+        .read(conversationListProvider)
+        .where((c) => c.id == widget.conversationId)
+        .firstOrNull;
     final title = conv?.title ?? '对话记录';
 
     final nameCtrl = TextEditingController(text: title);
@@ -519,34 +607,54 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('导出 Word'),
-        content: TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '文件名')),
+        content: TextField(
+            controller: nameCtrl,
+            decoration: const InputDecoration(labelText: '文件名')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()), child: const Text('导出')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
+              child: const Text('导出')),
         ],
       ),
     );
     if (name == null || name.isEmpty) return;
 
     try {
-      final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+      final dir =
+          await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
       if (dir == null) return;
       final file = File('$dir/$name.docx');
-      final messages = chatState.messages.map((m) => {'role': m.role, 'content': _stripFormatting(m.content)}).toList();
-      await WordGenerator.generate(title: name, messages: messages, outputPath: file.path);
+      final messages = chatState.messages
+          .map((m) => {'role': m.role, 'content': _stripFormatting(m.content)})
+          .toList();
+      await WordGenerator.generate(
+          title: name, messages: messages, outputPath: file.path);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存: ${file.path}')));
         final result = await showModalBottomSheet<String>(
           context: context,
-          builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(leading: const Icon(Icons.share), title: const Text('分享文件'), onTap: () => Navigator.pop(ctx, 'share')),
-            ListTile(leading: const Icon(Icons.check), title: const Text('完成'), onTap: () => Navigator.pop(ctx)),
+          builder: (ctx) => SafeArea(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+                leading: const Icon(Icons.share),
+                title: const Text('分享文件'),
+                onTap: () => Navigator.pop(ctx, 'share')),
+            ListTile(
+                leading: const Icon(Icons.check),
+                title: const Text('完成'),
+                onTap: () => Navigator.pop(ctx)),
           ])),
         );
-        if (result == 'share') await Share.shareXFiles([XFile(file.path)], text: name);
+        if (result == 'share')
+          await Share.shareXFiles([XFile(file.path)], text: name);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
   }
 
@@ -586,8 +694,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       if (c.expertPanelId != null) {
         isExpertMode = true;
         try {
-          expertPanel =
-              panels.firstWhere((p) => p.id == c.expertPanelId);
+          expertPanel = panels.firstWhere((p) => p.id == c.expertPanelId);
           final ep = expertPanel;
           for (final pid in ep.expertProviderIds) {
             try {
@@ -662,94 +769,115 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
             )
           : _multiSelectMode
               ? AppBar(
-                  leading: IconButton(icon: const Icon(Icons.close), onPressed: _toggleMultiSelect),
+                  leading: IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: _toggleMultiSelect),
                   title: Text('已选择 ${_selectedMessageIds.length} 条'),
                   actions: [
-                    IconButton(icon: Icon(_selectedMessageIds.length == chatState.messages.length ? Icons.deselect : Icons.select_all), tooltip: '全选', onPressed: _selectAllMessages),
-                    IconButton(icon: const Icon(Icons.delete_outline), tooltip: '删除', onPressed: _batchDelete),
-                    IconButton(icon: const Icon(Icons.star_outline), tooltip: '收藏', onPressed: _batchFavorite),
+                    IconButton(
+                        icon: Icon(_selectedMessageIds.length ==
+                                chatState.messages.length
+                            ? Icons.deselect
+                            : Icons.select_all),
+                        tooltip: '全选',
+                        onPressed: _selectAllMessages),
+                    IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: '删除',
+                        onPressed: _batchDelete),
+                    IconButton(
+                        icon: const Icon(Icons.star_outline),
+                        tooltip: '收藏',
+                        onPressed: _batchFavorite),
                     PopupMenuButton<String>(
                       onSelected: (v) {
-                        if (v == 'word') _batchExportWord();
-                        else if (v == 'md') _exportSelectedAsMarkdown();
+                        if (v == 'word')
+                          _batchExportWord();
+                        else if (v == 'md')
+                          _exportSelectedAsMarkdown();
                         else if (v == 'txt') _exportSelectedAsTxt();
                       },
                       itemBuilder: (_) => [
-                        const PopupMenuItem(value: 'word', child: Text('导出 Word')),
-                        const PopupMenuItem(value: 'md', child: Text('导出 Markdown')),
-                        const PopupMenuItem(value: 'txt', child: Text('导出 TXT')),
+                        const PopupMenuItem(
+                            value: 'word', child: Text('导出 Word')),
+                        const PopupMenuItem(
+                            value: 'md', child: Text('导出 Markdown')),
+                        const PopupMenuItem(
+                            value: 'txt', child: Text('导出 TXT')),
                       ],
                       child: const Icon(Icons.description),
                     ),
                   ],
                 )
               : AppBar(
-              automaticallyImplyLeading: true,
-              title: Text(conv?.title ?? 'Chat'),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.search),
-                  tooltip: '搜索聊天记录',
-                  onPressed: () {
-                    setState(() => _showSearch = true);
-                  },
-                ),
-                if (isExpertMode && expertPanel != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Chip(
-                      label: Text(
-                        '兼听·${expertPanel.name}',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      backgroundColor: Colors.purple.withValues(alpha: 0.15),
-                      side: BorderSide(
-                          color: Colors.purple.withValues(alpha: 0.3)),
-                      visualDensity: VisualDensity.compact,
+                  automaticallyImplyLeading: true,
+                  title: Text(conv?.title ?? 'Chat'),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.search),
+                      tooltip: '搜索聊天记录',
+                      onPressed: () {
+                        setState(() => _showSearch = true);
+                      },
                     ),
-                  )
-                else if (provider != null && conv != null)
-                  _ModelSelectorChip(
-                    provider: provider,
-                    currentModel: conv.modelName,
-                    reasoningEffort: conv.reasoningEffort,
-                    onModelChanged: (model, effort) {
-                      ref.read(conversationListProvider.notifier).switchModel(
-                            widget.conversationId,
-                            model,
-                            effort,
-                          );
-                    },
-                  ),
-                PopupMenuButton<String>(
-                  onSelected: (value) {
-                    if (value == 'wallpaper') {
-                      _setWallpaper();
-                    } else if (value == 'clear_wallpaper') {
-                      ref
-                          .read(conversationListProvider.notifier)
-                          .setWallpaper(widget.conversationId, null);
-                    } else if (value == 'delete') {
-                      _confirmDelete(context);
-                    } else if (value == 'select') {
-                      _toggleMultiSelect();
-                    }
-                  },
-                  itemBuilder: (ctx) => [
-                    const PopupMenuItem(
-                        value: 'select', child: Text('选择消息')),
-                    const PopupMenuItem(
-                        value: 'wallpaper', child: Text('设置壁纸')),
-                    if (conv?.wallpaperPath != null)
-                      const PopupMenuItem(
-                          value: 'clear_wallpaper',
-                          child: Text('清除壁纸')),
-                    const PopupMenuItem(
-                        value: 'delete', child: Text('删除会话')),
+                    if (isExpertMode && expertPanel != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Chip(
+                          label: Text(
+                            '兼听·${expertPanel.name}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          backgroundColor:
+                              Colors.purple.withValues(alpha: 0.15),
+                          side: BorderSide(
+                              color: Colors.purple.withValues(alpha: 0.3)),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )
+                    else if (provider != null && conv != null)
+                      _ModelSelectorChip(
+                        provider: provider,
+                        currentModel: conv.modelName,
+                        reasoningEffort: conv.reasoningEffort,
+                        onModelChanged: (model, effort) {
+                          ref
+                              .read(conversationListProvider.notifier)
+                              .switchModel(
+                                widget.conversationId,
+                                model,
+                                effort,
+                              );
+                        },
+                      ),
+                    PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'wallpaper') {
+                          _setWallpaper();
+                        } else if (value == 'clear_wallpaper') {
+                          ref
+                              .read(conversationListProvider.notifier)
+                              .setWallpaper(widget.conversationId, null);
+                        } else if (value == 'delete') {
+                          _confirmDelete(context);
+                        } else if (value == 'select') {
+                          _toggleMultiSelect();
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        const PopupMenuItem(
+                            value: 'select', child: Text('选择消息')),
+                        const PopupMenuItem(
+                            value: 'wallpaper', child: Text('设置壁纸')),
+                        if (conv?.wallpaperPath != null)
+                          const PopupMenuItem(
+                              value: 'clear_wallpaper', child: Text('清除壁纸')),
+                        const PopupMenuItem(
+                            value: 'delete', child: Text('删除会话')),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -767,7 +895,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
               if (chatState.errorMessage != null)
                 MaterialBanner(
                   content: GestureDetector(
-                    onTap: () => setState(() => _errorExpanded = !_errorExpanded),
+                    onTap: () =>
+                        setState(() => _errorExpanded = !_errorExpanded),
                     child: Text(
                       _errorExpanded || chatState.errorMessage!.length < 80
                           ? chatState.errorMessage!
@@ -784,7 +913,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                           final images = _lastSentImages;
                           final filePath = _lastSentFilePath;
                           final fileName = _lastSentFileName;
-                          ref.read(chatProvider(widget.conversationId).notifier).clearError();
+                          ref
+                              .read(
+                                  chatProvider(widget.conversationId).notifier)
+                              .clearError();
                           setState(() {
                             _errorExpanded = false;
                             _lastSentText = null;
@@ -792,21 +924,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                             _lastSentFilePath = null;
                             _lastSentFileName = null;
                           });
-                          final notifier = ref.read(chatProvider(widget.conversationId).notifier);
-                          final conversations = ref.read(conversationListProvider);
-                          final currentConv = conversations.firstWhere((c) => c.id == widget.conversationId);
-                          if (isExpertMode && expertPanel != null && gatewayConfig != null) {
-                            notifier.sendExpertMessage(panel: expertPanel, expertConfigs: expertConfigs, gatewayConfig: gatewayConfig, text: text, imagePaths: images, filePath: filePath, fileName: fileName);
+                          final notifier = ref.read(
+                              chatProvider(widget.conversationId).notifier);
+                          final conversations =
+                              ref.read(conversationListProvider);
+                          final currentConv = conversations
+                              .firstWhere((c) => c.id == widget.conversationId);
+                          if (isExpertMode &&
+                              expertPanel != null &&
+                              gatewayConfig != null) {
+                            notifier.sendExpertMessage(
+                                panel: expertPanel,
+                                expertConfigs: expertConfigs,
+                                gatewayConfig: gatewayConfig,
+                                text: text,
+                                imagePaths: images,
+                                filePath: filePath,
+                                fileName: fileName);
                           } else if (provider != null) {
-                            notifier.sendMessage(providerConfig: provider, text: text, imagePaths: images, filePath: filePath, fileName: fileName, overrideModel: currentConv.modelName, reasoningEffort: currentConv.reasoningEffort);
+                            notifier.sendMessage(
+                                providerConfig: provider,
+                                text: text,
+                                imagePaths: images,
+                                filePath: filePath,
+                                fileName: fileName,
+                                overrideModel: currentConv.modelName,
+                                reasoningEffort: currentConv.reasoningEffort);
                           }
                         },
                         child: const Text('重试'),
                       ),
                     TextButton(
                       onPressed: () {
-                        ref.read(chatProvider(widget.conversationId).notifier).clearError();
-                        setState(() { _errorExpanded = false; });
+                        ref
+                            .read(chatProvider(widget.conversationId).notifier)
+                            .clearError();
+                        setState(() {
+                          _errorExpanded = false;
+                        });
                       },
                       child: const Text('关闭'),
                     ),
@@ -826,7 +981,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                   onTap: () => FocusScope.of(context).unfocus(),
                   child: NotificationListener<ScrollNotification>(
                     onNotification: (notification) {
-                      if (notification is ScrollStartNotification && notification.dragDetails != null && _scrollController.hasClients && _scrollController.position.pixels >= 60) {
+                      if (notification is ScrollStartNotification &&
+                          notification.dragDetails != null &&
+                          _scrollController.hasClients &&
+                          _scrollController.position.pixels >= 60) {
                         setState(() => _userScrolledUp = true);
                       }
                       return false;
@@ -836,157 +994,197 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
                       reverse: true,
                       padding: const EdgeInsets.only(top: 8, bottom: 8),
                       itemCount: chatState.messages.length,
-                    itemBuilder: (context, index) {
-                      // reverse:true puts index 0 at the bottom, so we feed
-                      // messages in reverse so newest (last) maps to index 0.
-                      final msg = chatState.messages[
-                          chatState.messages.length - 1 - index];
-                      final isLastAssistant =
-                          index == 0 && msg.role == 'assistant';
-                      // Expert-response / gateway bubbles each get their
-                      // own spinner while content is still empty; it
-                      // disappears the moment that expert finishes.
-                      final isExpertMsg = msg.metadata != null &&
-                          (msg.metadata!['type'] == 'expert_response' ||
-                           msg.metadata!['type'] == 'gateway_synthesis');
-                      final showStreaming = isExpertMsg
-                          ? msg.content.isEmpty && chatState.isStreaming
-                          : isLastAssistant && chatState.isStreaming;
-                      return MessageBubble(
-                        key: _messageKeys.putIfAbsent(msg.id, () => GlobalKey()),
-                        message: msg,
-                        isStreaming: showStreaming,
-                        assistantIcon: persona != null
-                            ? IconData(persona.avatarIcon,
-                                fontFamily: 'MaterialIcons')
-                            : null,
-                        assistantColor: persona != null
-                            ? Color(persona.avatarColor)
-                            : null,
-                        assistantName: persona?.name,
-                        assistantState: showStreaming
-                            ? AssistantState.streaming
-                            : AssistantState.idle,
-                        onFollowUp: (content, msgId) {
-                          setState(() {
-                            _followUpContext = content;
-                            _followUpMessageId = msgId;
-                          });
-                        },
-                        onDelete: () {
-                          ref
-                              .read(chatProvider(widget.conversationId)
-                                  .notifier)
-                              .deleteMessage(msg.id);
-                        },
-                        onToggleFavorite: () {
-                          ref
-                              .read(chatProvider(widget.conversationId)
-                                  .notifier)
-                              .toggleFavorite(msg.id);
-                        },
-                        onScrollToMessage: (targetId) {
-                          _scrollToMessage(targetId);
-                        },
-                        onExportWord: () => _exportChatAsWord(),
-                        onExportMarkdown: () => _exportChatAsMarkdown(),
-                        onExportTxt: () => _exportChatAsTxt(),
-                        onRegenerate: () {
-                          if (provider != null) {
-                            ref.read(chatProvider(widget.conversationId).notifier).regenerateLastResponse(
-                              providerConfig: provider,
-                              overrideModel: conv?.modelName,
-                              reasoningEffort: conv?.reasoningEffort,
-                            );
-                          }
-                        },
-                        onEdit: (msgId, currentContent) {
-                          _showEditDialog(msgId, currentContent, provider);
-                        },
-                        multiSelectMode: _multiSelectMode,
-                        isSelected: _selectedMessageIds.contains(msg.id),
-                        onToggleSelect: () => _toggleMessageSelection(msg.id),
-                      );
-                    },
+                      itemBuilder: (context, index) {
+                        // reverse:true puts index 0 at the bottom, so we feed
+                        // messages in reverse so newest (last) maps to index 0.
+                        final msg = chatState
+                            .messages[chatState.messages.length - 1 - index];
+                        final isLastAssistant =
+                            index == 0 && msg.role == 'assistant';
+                        // Expert-response / gateway bubbles each get their
+                        // own spinner while content is still empty; it
+                        // disappears the moment that expert finishes.
+                        final isExpertMsg = msg.metadata != null &&
+                            (msg.metadata!['type'] == 'expert_response' ||
+                                msg.metadata!['type'] == 'gateway_synthesis');
+                        final showStreaming = isExpertMsg
+                            ? msg.content.isEmpty && chatState.isStreaming
+                            : isLastAssistant && chatState.isStreaming;
+                        return MessageBubble(
+                          key: _messageKeys.putIfAbsent(
+                              msg.id, () => GlobalKey()),
+                          message: msg,
+                          isStreaming: showStreaming,
+                          assistantIcon: persona != null
+                              ? IconData(persona.avatarIcon,
+                                  fontFamily: 'MaterialIcons')
+                              : null,
+                          assistantColor: persona != null
+                              ? Color(persona.avatarColor)
+                              : null,
+                          assistantName: persona?.name,
+                          assistantState: showStreaming
+                              ? AssistantState.streaming
+                              : AssistantState.idle,
+                          onFollowUp: (content, msgId) {
+                            setState(() {
+                              _followUpContext = content;
+                              _followUpMessageId = msgId;
+                            });
+                          },
+                          onDelete: () {
+                            ref
+                                .read(chatProvider(widget.conversationId)
+                                    .notifier)
+                                .deleteMessage(msg.id);
+                          },
+                          onToggleFavorite: () {
+                            ref
+                                .read(chatProvider(widget.conversationId)
+                                    .notifier)
+                                .toggleFavorite(msg.id);
+                          },
+                          onScrollToMessage: (targetId) {
+                            _scrollToMessage(targetId);
+                          },
+                          onExportWord: () => _exportChatAsWord(),
+                          onExportMarkdown: () => _exportChatAsMarkdown(),
+                          onExportTxt: () => _exportChatAsTxt(),
+                          onRegenerate: () {
+                            if (provider != null) {
+                              ref
+                                  .read(chatProvider(widget.conversationId)
+                                      .notifier)
+                                  .regenerateLastResponse(
+                                    providerConfig: provider,
+                                    overrideModel: conv?.modelName,
+                                    reasoningEffort: conv?.reasoningEffort,
+                                  );
+                            }
+                          },
+                          onEdit: (msgId, currentContent) {
+                            _showEditDialog(msgId, currentContent, provider);
+                          },
+                          multiSelectMode: _multiSelectMode,
+                          isSelected: _selectedMessageIds.contains(msg.id),
+                          onToggleSelect: () => _toggleMessageSelection(msg.id),
+                        );
+                      },
+                    ),
                   ),
                 ),
-                ),
               ),
-              if (!_multiSelectMode && (isExpertMode
-                  ? (gatewayConfig != null && expertConfigs.isNotEmpty)
-                  : provider != null))
+              if (!_multiSelectMode)
                 SafeArea(
                   top: false,
                   child: ChatInputBar(
-                  key: const ValueKey('chat_input_bar'),
-                  onSend: ({
-                    required String text,
-                    List<String>? imagePaths,
-                    String? filePath,
-                    String? fileName,
-                    bool? deepSearch,
-                  }) async {
-                    _lastSentText = text;
-                    _lastSentImages = imagePaths;
-                    _lastSentFilePath = filePath;
-                    _lastSentFileName = fileName;
-                    final replyTo = _followUpMessageId;
-                    final replyPreview = _followUpContext;
-                    final notifier = ref.read(
-                        chatProvider(widget.conversationId).notifier);
-                    if (deepSearch == true && provider != null) {
-                      await notifier.sendDeepSearchMessage(
-                        providerConfig: provider,
-                        text: text,
-                      );
-                    } else if (isExpertMode &&
-                        expertPanel != null &&
-                        gatewayConfig != null) {
-                      await notifier.sendExpertMessage(
-                        panel: expertPanel,
-                        expertConfigs: expertConfigs,
-                        gatewayConfig: gatewayConfig,
-                        text: text,
-                        imagePaths: imagePaths,
-                        filePath: filePath,
-                        fileName: fileName,
-                      );
-                    } else if (provider != null) {
-                      await notifier.sendMessage(
-                        providerConfig: provider,
-                        text: text,
-                        imagePaths: imagePaths,
-                        filePath: filePath,
-                        fileName: fileName,
-                        replyToId: replyTo,
-                        replyPreview: replyPreview,
-                        overrideModel: conv?.modelName,
-                        reasoningEffort: conv?.reasoningEffort,
-                      );
-                    }
-                  },
-                  onMessageSent: () {
-                    _userScrolledUp = false;
-                    setState(() {
-                      _followUpContext = null;
-                      _followUpMessageId = null;
-                    });
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _scrollToBottom();
-                    });
-                  },
-                  supportsVision: supportsVision,
-                  supportsFile: supportsFile,
-                  hintText: hintText,
-                  prefillText: null,
-                  followUpContent: _followUpContext,
-                  onCancelFollowUp: () {
-                    setState(() {
-                      _followUpContext = null;
-                      _followUpMessageId = null;
-                    });
-                  },
-                ),
+                    key: const ValueKey('chat_input_bar'),
+                    onSend: ({
+                      required String text,
+                      List<String>? imagePaths,
+                      String? filePath,
+                      String? fileName,
+                      List<String>? filePaths,
+                      List<String>? fileNames,
+                      bool? deepSearch,
+                      bool? useTools,
+                    }) async {
+                      _lastSentText = text;
+                      _lastSentImages = imagePaths;
+                      _lastSentFilePath = filePaths?.isNotEmpty == true
+                          ? filePaths!.first
+                          : filePath;
+                      _lastSentFileName = fileNames?.isNotEmpty == true
+                          ? fileNames!.first
+                          : fileName;
+                      final replyTo = _followUpMessageId;
+                      final replyPreview = _followUpContext;
+                      final notifier = ref
+                          .read(chatProvider(widget.conversationId).notifier);
+
+                      final currentProviders = ref.read(providerListProvider);
+                      final currentConvs = ref.read(conversationListProvider);
+                      final currentConv = currentConvs
+                          .where((c) => c.id == widget.conversationId)
+                          .firstOrNull;
+                      AIProviderConfig? sendProvider = provider;
+                      if (sendProvider == null &&
+                          currentConv != null &&
+                          currentProviders.isNotEmpty) {
+                        try {
+                          sendProvider = currentProviders
+                              .cast<AIProviderConfig?>()
+                              .firstWhere(
+                                  (p) => p!.id == currentConv.providerConfigId);
+                        } catch (_) {}
+                      }
+                      if (sendProvider == null && currentProviders.isNotEmpty) {
+                        sendProvider =
+                            currentProviders.first as AIProviderConfig;
+                      }
+
+                      if (deepSearch == true && sendProvider != null) {
+                        await notifier.sendDeepSearchMessage(
+                          providerConfig: sendProvider,
+                          text: text,
+                        );
+                      } else if (isExpertMode &&
+                          expertPanel != null &&
+                          gatewayConfig != null) {
+                        await notifier.sendExpertMessage(
+                          panel: expertPanel,
+                          expertConfigs: expertConfigs,
+                          gatewayConfig: gatewayConfig,
+                          text: text,
+                          imagePaths: imagePaths,
+                          filePath: filePath,
+                          fileName: fileName,
+                        );
+                      } else if (sendProvider != null) {
+                        final modelToUse = (currentConv?.modelName != null &&
+                                currentConv.modelName.isNotEmpty)
+                            ? currentConv.modelName
+                            : sendProvider.modelName;
+                        await notifier.sendMessage(
+                          providerConfig: sendProvider,
+                          text: text,
+                          imagePaths: imagePaths,
+                          filePath: filePath,
+                          fileName: fileName,
+                          filePaths: filePaths,
+                          fileNames: fileNames,
+                          replyToId: replyTo,
+                          replyPreview: replyPreview,
+                          overrideModel: modelToUse,
+                          reasoningEffort: currentConv?.reasoningEffort,
+                          useTools: useTools == true,
+                        );
+                      } else {
+                        throw Exception('请先在设置中添加一个可用的 API 配置');
+                      }
+                    },
+                    onMessageSent: () {
+                      _userScrolledUp = false;
+                      setState(() {
+                        _followUpContext = null;
+                        _followUpMessageId = null;
+                      });
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _scrollToBottom();
+                      });
+                    },
+                    supportsVision: supportsVision,
+                    supportsFile: supportsFile,
+                    hintText: hintText,
+                    prefillText: null,
+                    followUpContent: _followUpContext,
+                    onCancelFollowUp: () {
+                      setState(() {
+                        _followUpContext = null;
+                        _followUpMessageId = null;
+                      });
+                    },
+                  ),
                 ),
             ],
           ),
@@ -996,6 +1194,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
               child: ColoredBox(
                 color: theme.colorScheme.surface,
                 child: _buildSearchResults(chatState.messages, theme),
+              ),
+            ),
+          // Layer 2.5: draggable companion character
+          if (!_showSearch)
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final overlaySize = Size(
+                    constraints.maxWidth,
+                    constraints.maxHeight,
+                  );
+                  final padding = MediaQuery.paddingOf(context);
+                  final position = _clampCompanionPosition(
+                    _companionPosition ??
+                        _defaultCompanionPosition(overlaySize, padding),
+                    overlaySize,
+                    padding,
+                  );
+
+                  return Stack(
+                    children: [
+                      Positioned(
+                        left: position.dx,
+                        top: position.dy,
+                        width: _companionWidth,
+                        height: _companionHeight,
+                        child: CompanionCharacter(
+                          mood: chatState.isStreaming
+                              ? CompanionMood.streaming
+                              : (chatState.messages.isEmpty
+                                  ? CompanionMood.sleeping
+                                  : CompanionMood.idle),
+                          color: persona != null
+                              ? Color(persona.avatarColor)
+                              : const Color(0xFF4F46E5),
+                          size: 64,
+                          name: persona?.name,
+                          onDragUpdate: (details) => _moveCompanion(
+                            details,
+                            overlaySize,
+                            padding,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           // Layer 3: scroll-to-bottom FAB
@@ -1067,7 +1312,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
     );
   }
 
-  void _showEditDialog(String messageId, String currentContent, AIProviderConfig? provider) {
+  void _showEditDialog(
+      String messageId, String currentContent, AIProviderConfig? provider) {
     if (provider == null) return;
     final ctrl = TextEditingController(text: currentContent);
     showDialog(
@@ -1080,21 +1326,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
           decoration: const InputDecoration(labelText: '修改内容'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
               final newText = ctrl.text.trim();
               if (newText.isNotEmpty && newText != currentContent) {
                 final conversations = ref.read(conversationListProvider);
-                final conv = conversations.firstWhere((c) => c.id == widget.conversationId);
-                ref.read(chatProvider(widget.conversationId).notifier).editAndResend(
-                  providerConfig: provider,
-                  messageId: messageId,
-                  newText: newText,
-                  overrideModel: conv.modelName,
-                  reasoningEffort: conv.reasoningEffort,
-                );
+                final conv = conversations
+                    .firstWhere((c) => c.id == widget.conversationId);
+                ref
+                    .read(chatProvider(widget.conversationId).notifier)
+                    .editAndResend(
+                      providerConfig: provider,
+                      messageId: messageId,
+                      newText: newText,
+                      overrideModel: conv.modelName,
+                      reasoningEffort: conv.reasoningEffort,
+                    );
               }
             },
             child: const Text('发送'),
@@ -1106,7 +1356,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
 
   Future<void> _exportChatAsMarkdown() async {
     final chatState = ref.read(chatProvider(widget.conversationId));
-    final conv = ref.read(conversationListProvider).where((c) => c.id == widget.conversationId).firstOrNull;
+    final conv = ref
+        .read(conversationListProvider)
+        .where((c) => c.id == widget.conversationId)
+        .firstOrNull;
     final title = conv?.title ?? '对话记录';
     final buf = StringBuffer();
     buf.writeln('# $title');
@@ -1122,22 +1375,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       buf.writeln();
     }
 
-    final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+    final dir =
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.md');
       await f.writeAsString(buf.toString());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
   }
 
   Future<void> _exportChatAsTxt() async {
     final chatState = ref.read(chatProvider(widget.conversationId));
-    final conv = ref.read(conversationListProvider).where((c) => c.id == widget.conversationId).firstOrNull;
+    final conv = ref
+        .read(conversationListProvider)
+        .where((c) => c.id == widget.conversationId)
+        .firstOrNull;
     final title = conv?.title ?? '对话记录';
     final buf = StringBuffer();
     for (final m in chatState.messages) {
@@ -1147,24 +1407,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       buf.writeln();
     }
 
-    final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+    final dir =
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.txt');
       await f.writeAsString(buf.toString());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
   }
 
   Future<void> _exportSelectedAsMarkdown() async {
     final chatState = ref.read(chatProvider(widget.conversationId));
-    final selected = chatState.messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
+    final selected = chatState.messages
+        .where((m) => _selectedMessageIds.contains(m.id))
+        .toList();
     if (selected.isEmpty) return;
-    final conv = ref.read(conversationListProvider).where((c) => c.id == widget.conversationId).firstOrNull;
+    final conv = ref
+        .read(conversationListProvider)
+        .where((c) => c.id == widget.conversationId)
+        .firstOrNull;
     final title = conv?.title ?? '对话记录';
     final buf = StringBuffer();
     buf.writeln('# $title');
@@ -1176,21 +1445,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       buf.writeln(m.content);
       buf.writeln();
     }
-    final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+    final dir =
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/$title.md');
       await f.writeAsString(buf.toString());
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
-    setState(() { _selectedMessageIds.clear(); _multiSelectMode = false; });
+    setState(() {
+      _selectedMessageIds.clear();
+      _multiSelectMode = false;
+    });
   }
 
   Future<void> _exportSelectedAsTxt() async {
     final chatState = ref.read(chatProvider(widget.conversationId));
-    final selected = chatState.messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
+    final selected = chatState.messages
+        .where((m) => _selectedMessageIds.contains(m.id))
+        .toList();
     if (selected.isEmpty) return;
     final buf = StringBuffer();
     for (final m in selected) {
@@ -1199,16 +1478,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with RouteAware {
       buf.writeln(m.content);
       buf.writeln();
     }
-    final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
+    final dir =
+        await FilePicker.platform.getDirectoryPath(dialogTitle: '选择保存位置');
     if (dir == null) return;
     try {
       final f = File('$dir/export.txt');
       await f.writeAsString(buf.toString());
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存: ${f.path}')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
-    setState(() { _selectedMessageIds.clear(); _multiSelectMode = false; });
+    setState(() {
+      _selectedMessageIds.clear();
+      _multiSelectMode = false;
+    });
   }
 }
 
@@ -1261,7 +1548,8 @@ class _ModelSelectorChip extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.tune, size: 20, color: theme.colorScheme.primary),
+                    Icon(Icons.tune,
+                        size: 20, color: theme.colorScheme.primary),
                     const SizedBox(width: 8),
                     Text(
                       '切换模型',
@@ -1304,16 +1592,19 @@ class _ModelSelectorChip extends StatelessWidget {
                           onModelChanged(m, selectedEffort);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
                             color: isSelected
                                 ? theme.colorScheme.primaryContainer
-                                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                                : theme.colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.4),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: isSelected
                                   ? theme.colorScheme.primary
-                                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+                                  : theme.colorScheme.outlineVariant
+                                      .withValues(alpha: 0.2),
                               width: isSelected ? 1.5 : 1,
                             ),
                           ),
@@ -1331,7 +1622,9 @@ class _ModelSelectorChip extends StatelessWidget {
                                 child: Text(
                                   m,
                                   style: TextStyle(
-                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
                                     color: isSelected
                                         ? theme.colorScheme.onPrimaryContainer
                                         : theme.colorScheme.onSurface,
@@ -1339,7 +1632,8 @@ class _ModelSelectorChip extends StatelessWidget {
                                 ),
                               ),
                               if (isSelected)
-                                Icon(Icons.check_circle, size: 18, color: theme.colorScheme.primary),
+                                Icon(Icons.check_circle,
+                                    size: 18, color: theme.colorScheme.primary),
                             ],
                           ),
                         ),
@@ -1362,7 +1656,8 @@ class _ModelSelectorChip extends StatelessWidget {
                       Expanded(
                         child: GestureDetector(
                           onTap: () {
-                            final newEffort = selectedEffort == entry.key ? null : entry.key;
+                            final newEffort =
+                                selectedEffort == entry.key ? null : entry.key;
                             setModalState(() => selectedEffort = newEffort);
                             onModelChanged(selectedModel, newEffort);
                           },
@@ -1371,12 +1666,14 @@ class _ModelSelectorChip extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: selectedEffort == entry.key
                                   ? theme.colorScheme.primaryContainer
-                                  : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                                  : theme.colorScheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
                                 color: selectedEffort == entry.key
                                     ? theme.colorScheme.primary
-                                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+                                    : theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.2),
                                 width: selectedEffort == entry.key ? 1.5 : 1,
                               ),
                             ),
@@ -1425,7 +1722,9 @@ class _ModelSelectorChip extends StatelessWidget {
     final modelLabel = currentModel.length > 16
         ? '${currentModel.substring(0, 16)}...'
         : currentModel;
-    final effortLabel = reasoningEffort != null ? ' · ${_effortLabels[reasoningEffort] ?? reasoningEffort}' : '';
+    final effortLabel = reasoningEffort != null
+        ? ' · ${_effortLabels[reasoningEffort] ?? reasoningEffort}'
+        : '';
 
     return GestureDetector(
       onTap: () => _showSheet(context),
@@ -1441,14 +1740,19 @@ class _ModelSelectorChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.smart_toy_outlined, size: 14, color: theme.colorScheme.primary),
+            Icon(Icons.smart_toy_outlined,
+                size: 14, color: theme.colorScheme.primary),
             const SizedBox(width: 5),
             Text(
               '$modelLabel$effortLabel',
-              style: TextStyle(fontSize: 11, color: theme.colorScheme.onPrimaryContainer, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w500),
             ),
             const SizedBox(width: 3),
-            Icon(Icons.arrow_drop_down, size: 18, color: theme.colorScheme.primary),
+            Icon(Icons.arrow_drop_down,
+                size: 18, color: theme.colorScheme.primary),
           ],
         ),
       ),

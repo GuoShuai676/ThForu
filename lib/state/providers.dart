@@ -18,6 +18,12 @@ import 'chat_state.dart';
 import 'theme_notifier.dart';
 import 'formula_display_notifier.dart';
 import 'persona_list_notifier.dart';
+import 'terminal_notifier.dart';
+import 'terminal_state.dart';
+import 'tool_settings_notifier.dart';
+import 'skill_list_notifier.dart';
+import '../models/tool_settings.dart';
+import '../models/skill.dart';
 
 final routeObserver = RouteObserver<ModalRoute>();
 
@@ -71,7 +77,8 @@ final chatProvider =
     final toolRegistry = ref.watch(toolRegistryProvider);
     final toolExecutor = ref.watch(toolExecutorProvider);
     ref.keepAlive();
-    return ChatNotifier(conversationId, messageDao, conversationDao, memoryDao, toolRegistry, toolExecutor);
+    return ChatNotifier(conversationId, messageDao, conversationDao, memoryDao,
+        toolRegistry, toolExecutor);
   },
 );
 
@@ -85,9 +92,9 @@ final expertPanelListProvider =
   return ExpertPanelListNotifier();
 });
 
-final resolvedExpertPanelProvider =
-    Provider.family<({List<AIProviderConfig> experts, AIProviderConfig gateway})?,
-        String?>((ref, panelId) {
+final resolvedExpertPanelProvider = Provider.family<
+    ({List<AIProviderConfig> experts, AIProviderConfig gateway})?,
+    String?>((ref, panelId) {
   if (panelId == null) return null;
   final panels = ref.watch(expertPanelListProvider);
   final providers = ref.watch(providerListProvider);
@@ -131,3 +138,19 @@ final personaListProvider =
   return PersonaListNotifier();
 });
 
+final terminalProvider =
+    StateNotifierProvider<TerminalNotifier, TerminalState>((ref) {
+  final notifier = TerminalNotifier();
+  notifier.init();
+  return notifier;
+});
+
+final toolSettingsProvider =
+    StateNotifierProvider<ToolSettingsNotifier, ToolSettings>((ref) {
+  return ToolSettingsNotifier();
+});
+
+final skillListProvider =
+    StateNotifierProvider<SkillListNotifier, List<Skill>>((ref) {
+  return SkillListNotifier();
+});

@@ -72,7 +72,8 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
       if (count >= 20) break; // Limit total results
       try {
         final messages = await dao.getByConversation(conv.id);
-        for (final msg in messages.reversed) { // Search from newest
+        for (final msg in messages.reversed) {
+          // Search from newest
           if (count >= 20) break;
           if (msg.content.toLowerCase().contains(q)) {
             results.add({
@@ -106,8 +107,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     final providers = ref.watch(providerListProvider);
     final theme = Theme.of(context);
 
-    final sorted = [...conversations]
-      ..sort((a, b) {
+    final sorted = [...conversations]..sort((a, b) {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
         return b.updatedAt.compareTo(a.updatedAt);
       });
@@ -142,10 +142,12 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                         children: [
                           if (_isSearching)
                             const SizedBox(
-                                width: 20, height: 20,
+                                width: 20,
+                                height: 20,
                                 child: Padding(
                                   padding: EdgeInsets.all(4),
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )),
                           IconButton(
                             icon: const Icon(Icons.clear),
@@ -159,7 +161,8 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
               ),
             ),
           ),
@@ -187,40 +190,53 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                             final matchPos = lowerContent.indexOf(_query);
                             String snippet;
                             if (matchPos >= 0) {
-                              final start = (matchPos - 30).clamp(0, content.length);
+                              final start =
+                                  (matchPos - 30).clamp(0, content.length);
                               final end = (matchPos + _query.length + 60)
                                   .clamp(0, content.length);
                               snippet = (start > 0 ? '…' : '') +
-                                  content.substring(start, end).replaceAll('\n', ' ') +
+                                  content
+                                      .substring(start, end)
+                                      .replaceAll('\n', ' ') +
                                   (end < content.length ? '…' : '');
                             } else {
-                              snippet = content.replaceAll('\n', ' ').substring(
-                                  0, 100.clamp(0, content.length));
+                              snippet = content
+                                  .replaceAll('\n', ' ')
+                                  .substring(0, 100.clamp(0, content.length));
                               if (content.length > 100) snippet += '…';
                             }
 
                             return Card(
-                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              final convId = r['conversationId'] as String;
-                              final msgId = r['messageId'] as String;
-                              Navigator.pushNamed(context, '/chat',
-                                  arguments: {'conversationId': convId, 'messageId': msgId});
-                            },
+                              margin: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 4),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  final convId = r['conversationId'] as String;
+                                  final msgId = r['messageId'] as String;
+                                  Navigator.pushNamed(context, '/chat',
+                                      arguments: {
+                                        'conversationId': convId,
+                                        'messageId': msgId
+                                      });
+                                },
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
                                   child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       CircleAvatar(
                                         radius: 14,
                                         backgroundColor: role == 'user'
                                             ? theme.colorScheme.primaryContainer
-                                            : theme.colorScheme.tertiaryContainer,
+                                            : theme
+                                                .colorScheme.tertiaryContainer,
                                         child: Icon(
-                                          role == 'user' ? Icons.person : Icons.smart_toy,
+                                          role == 'user'
+                                              ? Icons.person
+                                              : Icons.smart_toy,
                                           size: 16,
                                           color: role == 'user'
                                               ? theme.colorScheme.primary
@@ -230,22 +246,29 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Row(
                                               children: [
                                                 Text(
                                                   convTitle,
-                                                  style: theme.textTheme.labelSmall?.copyWith(
-                                                    color: theme.colorScheme.outline,
+                                                  style: theme
+                                                      .textTheme.labelSmall
+                                                      ?.copyWith(
+                                                    color: theme
+                                                        .colorScheme.outline,
                                                     fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
                                                 const Spacer(),
                                                 Text(
                                                   role == 'user' ? '你' : 'AI',
-                                                  style: theme.textTheme.labelSmall?.copyWith(
-                                                    color: theme.colorScheme.outline,
+                                                  style: theme
+                                                      .textTheme.labelSmall
+                                                      ?.copyWith(
+                                                    color: theme
+                                                        .colorScheme.outline,
                                                   ),
                                                 ),
                                               ],
@@ -348,8 +371,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('没有配置 AI 大模型'),
-          content:
-              const Text('请先去设置中添加一个 AI 大模型（如 DeepSeek、OpenAI）。'),
+          content: const Text('请先去设置中添加一个 AI 大模型（如 DeepSeek、OpenAI）。'),
           actions: [
             TextButton(
               onPressed: () {
@@ -418,8 +440,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                       leading: CircleAvatar(
                         backgroundColor: Color(p.avatarColor),
                         child: Icon(
-                            IconData(p.avatarIcon,
-                                fontFamily: 'MaterialIcons'),
+                            IconData(p.avatarIcon, fontFamily: 'MaterialIcons'),
                             color: Colors.white,
                             size: 20),
                       ),
@@ -503,12 +524,11 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
       );
 
       if (selectedPanel != null) {
-        final conv =
-            await ref.read(conversationListProvider.notifier).create(
-                  providerConfigId: selectedPanel.gatewayProviderId,
-                  modelName: 'expert',
-                  expertPanelId: selectedPanel.id,
-                );
+        final conv = await ref.read(conversationListProvider.notifier).create(
+              providerConfigId: selectedPanel.gatewayProviderId,
+              modelName: 'expert',
+              expertPanelId: selectedPanel.id,
+            );
         if (mounted) {
           Navigator.pushNamed(context, '/chat', arguments: conv.id);
         }
@@ -593,11 +613,14 @@ class _ModelPickerDialogState extends State<_ModelPickerDialog> {
                   itemCount: models.length,
                   itemBuilder: (ctx, i) {
                     final model = models[i];
-                    final isSelected = !_useCustomModel && _selectedModel == model;
+                    final isSelected =
+                        !_useCustomModel && _selectedModel == model;
                     return ListTile(
                       dense: true,
                       leading: Icon(
-                        isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                        isSelected
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
                         color: isSelected ? theme.colorScheme.primary : null,
                         size: 20,
                       ),
@@ -652,9 +675,11 @@ class _ModelPickerDialogState extends State<_ModelPickerDialog> {
         FilledButton(
           onPressed: _selectedModel != null && _selectedModel!.isNotEmpty
               ? () => Navigator.pop(context, {
-                  'provider': provider,
-                  'model': _useCustomModel ? _customModelCtrl.text.trim() : _selectedModel,
-                })
+                    'provider': provider,
+                    'model': _useCustomModel
+                        ? _customModelCtrl.text.trim()
+                        : _selectedModel,
+                  })
               : null,
           child: const Text('开始对话'),
         ),

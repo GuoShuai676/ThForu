@@ -19,14 +19,6 @@ class AssistantAvatar extends StatefulWidget {
     this.state = AssistantState.idle,
   });
 
-  const AssistantAvatar.defaults({
-    super.key,
-    this.name,
-    this.size = 38,
-    this.state = AssistantState.idle,
-  })  : icon = Icons.smart_toy,
-        color = const Color(0xFF6366F1);
-
   @override
   State<AssistantAvatar> createState() => _AssistantAvatarState();
 }
@@ -66,119 +58,67 @@ class _AssistantAvatarState extends State<AssistantAvatar>
     super.dispose();
   }
 
-  Color get _baseColor => widget.color;
-
-  List<Color> get _gradientColors {
-    final hsl = HSLColor.fromColor(_baseColor);
-    return [
-      hsl.withLightness((hsl.lightness + 0.12).clamp(0.0, 1.0)).toColor(),
-      hsl.withLightness((hsl.lightness - 0.08).clamp(0.0, 1.0)).toColor(),
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
-    final colors = _gradientColors;
+    final base = widget.color;
+    final hsl = HSLColor.fromColor(base);
+    final lighter =
+        hsl.withLightness((hsl.lightness + 0.15).clamp(0.0, 1.0)).toColor();
+    final darker =
+        hsl.withLightness((hsl.lightness - 0.1).clamp(0.0, 1.0)).toColor();
 
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (context, child) {
-        final isActive = widget.state != AssistantState.idle;
-        final breathe = isActive ? (math.sin(_ctrl.value * 2 * math.pi) * 0.06 + 1.0) : 1.0;
-        final glowOpacity = isActive ? (0.25 + 0.15 * math.sin(_ctrl.value * 2 * math.pi)) : 0.0;
-        final rotate = widget.state == AssistantState.thinking
-            ? math.sin(_ctrl.value * 2 * math.pi) * 0.08
-            : 0.0;
-
-        return SizedBox(
-          width: widget.size,
-          height: widget.size,
-          child: Stack(
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (context, _) {
+          final active = widget.state != AssistantState.idle;
+          final glow =
+              active ? 0.3 + 0.2 * math.sin(_ctrl.value * 2 * math.pi) : 0.0;
+          final scale =
+              active ? 1.0 + 0.05 * math.sin(_ctrl.value * 2 * math.pi) : 1.0;
+          return Stack(
             alignment: Alignment.center,
             children: [
-              if (isActive)
+              if (active)
                 Container(
+                  width: widget.size + 8,
+                  height: widget.size + 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: _baseColor.withValues(alpha: glowOpacity),
-                        blurRadius: 14,
-                        spreadRadius: 3,
-                      ),
-                    ],
+                    color: base.withValues(alpha: glow),
                   ),
                 ),
               Transform.scale(
-                scale: breathe,
-                child: Transform.rotate(
-                  angle: rotate,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: colors,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _baseColor.withValues(alpha: 0.35),
+                scale: scale,
+                child: Container(
+                  width: widget.size,
+                  height: widget.size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [lighter, darker],
+                    ),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                          color: base.withValues(alpha: 0.4),
                           blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        widget.icon,
-                        size: widget.size * 0.5,
-                        color: Colors.white,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 2,
-                          ),
-                        ],
-                      ),
-                    ),
+                          spreadRadius: 1,
+                          offset: const Offset(0, 3)),
+                    ],
                   ),
+                  child: Icon(widget.icon,
+                      size: widget.size * 0.5, color: Colors.white),
                 ),
               ),
             ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class AssistantLabel extends StatelessWidget {
-  final String name;
-  final Color color;
-
-  const AssistantLabel({
-    super.key,
-    required this.name,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(left: 2, bottom: 2),
-      child: Text(
-        name,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w600,
-          fontSize: 11,
-        ),
+          );
+        },
       ),
     );
   }

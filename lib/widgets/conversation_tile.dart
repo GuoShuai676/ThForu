@@ -48,7 +48,9 @@ class ConversationTile extends StatelessWidget {
             onPressed: (_) => onTogglePin?.call(),
             backgroundColor: Colors.orange,
             foregroundColor: Colors.white,
-            icon: conversation.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+            icon: conversation.isPinned
+                ? Icons.push_pin_outlined
+                : Icons.push_pin,
             label: conversation.isPinned ? '取消置顶' : '置顶',
           ),
           SlidableAction(
@@ -88,7 +90,8 @@ class ConversationTile extends StatelessWidget {
                 WidgetSpan(
                   child: Container(
                     margin: const EdgeInsets.only(right: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                     decoration: BoxDecoration(
                       color: Colors.purple.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(4),
@@ -109,14 +112,15 @@ class ConversationTile extends StatelessWidget {
                   style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.primary, fontSize: 11),
                 ),
-              if ((providerName != null || (isExpertMode && expertPanelName != null)) &&
+              if ((providerName != null ||
+                      (isExpertMode && expertPanelName != null)) &&
                   lastMessage != null)
                 const TextSpan(text: '  '),
               if (lastMessage != null)
                 TextSpan(
                   text: lastMessage,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant),
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
             ],
           ),

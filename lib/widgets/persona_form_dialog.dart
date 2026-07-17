@@ -22,25 +22,60 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.persona?.name ?? '');
-    _promptCtrl = TextEditingController(text: widget.persona?.systemPrompt ?? '');
+    _promptCtrl =
+        TextEditingController(text: widget.persona?.systemPrompt ?? '');
     _iconCode = widget.persona?.avatarIcon ?? Icons.smart_toy.codePoint;
-    _colorValue = widget.persona?.avatarColor ?? const Color(0xFF6366F1).toARGB32();
+    _colorValue =
+        widget.persona?.avatarColor ?? const Color(0xFF6366F1).toARGB32();
   }
 
   static const _icons = [
-    Icons.smart_toy, Icons.psychology, Icons.auto_awesome, Icons.school,
-    Icons.science, Icons.face, Icons.person, Icons.work,
-    Icons.favorite, Icons.star, Icons.lightbulb, Icons.mic,
-    Icons.code, Icons.brush, Icons.music_note, Icons.camera_alt,
-    Icons.restaurant, Icons.fitness_center, Icons.flight, Icons.pets,
-    Icons.spa, Icons.terrain, Icons.wb_sunny, Icons.nightlight,
-    Icons.anchor, Icons.palette, Icons.theater_comedy, Icons.emoji_emotions,
-    Icons.shield, Icons.rocket_launch, Icons.diamond, Icons.bolt,
+    Icons.smart_toy,
+    Icons.psychology,
+    Icons.auto_awesome,
+    Icons.school,
+    Icons.science,
+    Icons.face,
+    Icons.person,
+    Icons.work,
+    Icons.favorite,
+    Icons.star,
+    Icons.lightbulb,
+    Icons.mic,
+    Icons.code,
+    Icons.brush,
+    Icons.music_note,
+    Icons.camera_alt,
+    Icons.restaurant,
+    Icons.fitness_center,
+    Icons.flight,
+    Icons.pets,
+    Icons.spa,
+    Icons.terrain,
+    Icons.wb_sunny,
+    Icons.nightlight,
+    Icons.anchor,
+    Icons.palette,
+    Icons.theater_comedy,
+    Icons.emoji_emotions,
+    Icons.shield,
+    Icons.rocket_launch,
+    Icons.diamond,
+    Icons.bolt,
   ];
   static const _colors = [
-    Color(0xFF6366F1), Color(0xFF3B82F6), Color(0xFF06B6D4), Color(0xFF10B981),
-    Color(0xFFF59E0B), Color(0xFFEF4444), Color(0xFFEC4899), Color(0xFF8B5CF6),
-    Color(0xFF78716C), Color(0xFF64748B), Color(0xFF14B8A6), Color(0xFFF97316),
+    Color(0xFF6366F1),
+    Color(0xFF3B82F6),
+    Color(0xFF06B6D4),
+    Color(0xFF10B981),
+    Color(0xFFF59E0B),
+    Color(0xFFEF4444),
+    Color(0xFFEC4899),
+    Color(0xFF8B5CF6),
+    Color(0xFF78716C),
+    Color(0xFF64748B),
+    Color(0xFF14B8A6),
+    Color(0xFFF97316),
   ];
 
   Future<void> _save() async {
@@ -161,7 +196,8 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
                         ? Border.all(color: Color(_colorValue), width: 2)
                         : null,
                   ),
-                  child: Icon(icon, color: selected ? Colors.white : null, size: 22),
+                  child: Icon(icon,
+                      color: selected ? Colors.white : null, size: 22),
                 ),
               );
             }).toList(),
@@ -184,10 +220,16 @@ class _PersonaFormDialogState extends ConsumerState<PersonaFormDialog> {
                     color: color,
                     shape: BoxShape.circle,
                     border: selected
-                        ? Border.all(color: theme.colorScheme.onSurface, width: 3)
+                        ? Border.all(
+                            color: theme.colorScheme.onSurface, width: 3)
                         : null,
                     boxShadow: selected
-                        ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8, spreadRadius: 1)]
+                        ? [
+                            BoxShadow(
+                                color: color.withValues(alpha: 0.4),
+                                blurRadius: 8,
+                                spreadRadius: 1)
+                          ]
                         : null,
                   ),
                 ),

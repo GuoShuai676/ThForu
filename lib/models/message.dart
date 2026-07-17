@@ -12,6 +12,8 @@ class Message {
   final List<String>? imagePaths;
   final String? filePath;
   final String? fileName;
+  final List<String>? filePaths;
+  final List<String>? fileNames;
   final Map<String, dynamic>? metadata;
   final DateTime createdAt;
   final bool isFavorite;
@@ -26,6 +28,8 @@ class Message {
     this.imagePaths,
     this.filePath,
     this.fileName,
+    this.filePaths,
+    this.fileNames,
     this.metadata,
     DateTime? createdAt,
     this.isFavorite = false,
@@ -35,21 +39,38 @@ class Message {
         createdAt = createdAt ?? DateTime.now();
 
   bool get hasImages => imagePaths != null && imagePaths!.isNotEmpty;
-  bool get hasFile => filePath != null;
+  bool get hasFile =>
+      filePath != null || (filePaths != null && filePaths!.isNotEmpty);
   bool get isToolCall => toolCalls != null && toolCalls!.isNotEmpty;
   bool get isToolResult => role == 'tool';
+
+  List<String> get allFilePaths {
+    if (filePaths != null && filePaths!.isNotEmpty) return filePaths!;
+    if (filePath != null) return [filePath!];
+    return [];
+  }
+
+  List<String> get allFileNames {
+    if (fileNames != null && fileNames!.isNotEmpty) return fileNames!;
+    if (fileName != null) return [fileName!];
+    return [];
+  }
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'conversation_id': conversationId,
         'role': role,
         'content': content,
-        'image_paths':
-            imagePaths != null ? jsonEncode(imagePaths) : null,
-        'file_path': filePath,
-        'file_name': fileName,
-        'metadata':
-            metadata != null ? jsonEncode(metadata) : null,
+        'image_paths': imagePaths != null ? jsonEncode(imagePaths) : null,
+        'file_path': filePath ??
+            (filePaths != null && filePaths!.isNotEmpty
+                ? jsonEncode(filePaths)
+                : null),
+        'file_name': fileName ??
+            (fileNames != null && fileNames!.isNotEmpty
+                ? jsonEncode(fileNames)
+                : null),
+        'metadata': metadata != null ? jsonEncode(metadata) : null,
         'created_at': createdAt.millisecondsSinceEpoch,
         'is_favorite': isFavorite ? 1 : 0,
         'tool_call_id': toolCallId,
@@ -59,8 +80,7 @@ class Message {
   factory Message.fromMap(Map<String, dynamic> map) {
     List<String>? paths;
     if (map['image_paths'] != null) {
-      paths = (jsonDecode(map['image_paths'] as String) as List)
-          .cast<String>();
+      paths = (jsonDecode(map['image_paths'] as String) as List).cast<String>();
     }
     Map<String, dynamic>? meta;
     if (map['metadata'] != null) {
@@ -72,17 +92,34 @@ class Message {
       tcs = (jsonDecode(map['tool_calls'] as String) as List)
           .cast<Map<String, dynamic>>();
     }
+    String? fp = map['file_path'] as String?;
+    String? fn = map['file_name'] as String?;
+    List<String>? fps;
+    List<String>? fns;
+    if (fp != null && fp.startsWith('[')) {
+      try {
+        fps = (jsonDecode(fp) as List).cast<String>();
+        fp = null;
+      } catch (_) {}
+    }
+    if (fn != null && fn.startsWith('[')) {
+      try {
+        fns = (jsonDecode(fn) as List).cast<String>();
+        fn = null;
+      } catch (_) {}
+    }
     return Message(
       id: map['id'] as String,
       conversationId: map['conversation_id'] as String,
       role: map['role'] as String,
       content: map['content'] as String,
       imagePaths: paths,
-      filePath: map['file_path'] as String?,
-      fileName: map['file_name'] as String?,
+      filePath: fp,
+      fileName: fn,
+      filePaths: fps,
+      fileNames: fns,
       metadata: meta,
-      createdAt:
-          DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       isFavorite: (map['is_favorite'] as int?) == 1,
       toolCallId: map['tool_call_id'] as String?,
       toolCalls: tcs,
@@ -132,16 +169,25 @@ class Message {
     }
 
     if (hasFile) {
-      final bytes = File(filePath!).readAsBytesSync();
-      final base64 = base64Encode(bytes);
-      final ext = filePath!.split('.').last.toLowerCase();
-      contentList.add({
-        'type': 'file',
-        'file': {
-          'filename': fileName ?? 'file.$ext',
-          'file_data': base64,
-        },
-      });
+      final paths = allFilePaths;
+      final names = allFileNames;
+      for (int i = 0; i < paths.length; i++) {
+        try {
+          final bytes = File(paths[i]).readAsBytesSync();
+          final base64 = base64Encode(bytes);
+          final ext = paths[i].split('.').last.toLowerCase();
+          final fName = i < names.length ? names[i] : 'file.$ext';
+          contentList.add({
+            'type': 'file',
+            'file': {
+              'filename': fName,
+              'file_data': base64,
+            },
+          });
+        } catch (e) {
+          contentList.add({'type': 'text', 'text': '[文件读取失败: $e]'});
+        }
+      }
     }
 
     return {'role': role, 'content': contentList};
@@ -152,6 +198,8 @@ class Message {
     List<String>? imagePaths,
     String? filePath,
     String? fileName,
+    List<String>? filePaths,
+    List<String>? fileNames,
     Map<String, dynamic>? metadata,
     bool? isFavorite,
     String? toolCallId,
@@ -165,6 +213,8 @@ class Message {
       imagePaths: imagePaths ?? this.imagePaths,
       filePath: filePath ?? this.filePath,
       fileName: fileName ?? this.fileName,
+      filePaths: filePaths ?? this.filePaths,
+      fileNames: fileNames ?? this.fileNames,
       metadata: metadata ?? this.metadata,
       createdAt: createdAt,
       isFavorite: isFavorite ?? this.isFavorite,

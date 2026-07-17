@@ -36,7 +36,11 @@ class _TypingIndicatorState extends State<TypingIndicator>
           listenable: _controller,
           builder: (context, child) {
             final phase = (_controller.value * 3.0 - i * 0.8) % 3.0;
-            final t = phase < 0 ? 0.0 : (phase > 1.0 ? (phase < 2.0 ? 1.0 - (phase - 1.0) : 0.0) : phase);
+            final t = phase < 0
+                ? 0.0
+                : (phase > 1.0
+                    ? (phase < 2.0 ? 1.0 - (phase - 1.0) : 0.0)
+                    : phase);
             final smooth = t * t * (3.0 - 2.0 * t);
             final y = -7.0 * smooth;
             final scale = 0.85 + 0.15 * smooth;

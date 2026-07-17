@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../models/provider_config.dart';
@@ -70,7 +70,8 @@ class AiService {
         try {
           await response.data.stream.drain<void>();
         } catch (_) {}
-        yield* _nonStreamingChat(history, newUserMessage, imagePaths, overrideModel, reasoningEffort, isCancelled);
+        yield* _nonStreamingChat(history, newUserMessage, imagePaths,
+            overrideModel, reasoningEffort, isCancelled);
         return;
       }
       if (response.statusCode != 200) {
@@ -95,7 +96,8 @@ class AiService {
       }
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
-        yield* _nonStreamingChat(history, newUserMessage, imagePaths, overrideModel, reasoningEffort, isCancelled);
+        yield* _nonStreamingChat(history, newUserMessage, imagePaths,
+            overrideModel, reasoningEffort, isCancelled);
         return;
       }
       final msg = switch (e.type) {
@@ -104,10 +106,10 @@ class AiService {
         DioExceptionType.connectionError => '网络连接失败，请检查网络后重试',
         DioExceptionType.cancel => '请求已取消',
         _ => switch (e.response?.statusCode) {
-          401 => 'API Key 无效',
-          429 => '请求太频繁，请稍后再试',
-          _ => '请求失败(${e.response?.statusCode}): ${e.message}',
-        },
+            401 => 'API Key 无效',
+            429 => '请求太频繁，请稍后再试',
+            _ => '请求失败(${e.response?.statusCode}): ${e.message}',
+          },
       };
       throw AiException(msg);
     }
@@ -125,14 +127,19 @@ class AiService {
     final messages = <Map<String, dynamic>>[];
     for (final msg in history) {
       if (!hasCur && msg.hasImages) {
-        messages.add({'role': msg.role, 'content': msg.content.isEmpty ? '[图片]' : msg.content});
+        messages.add({
+          'role': msg.role,
+          'content': msg.content.isEmpty ? '[图片]' : msg.content
+        });
       } else {
         messages.add(msg.toOpenAIMessage());
       }
     }
     final userMsg = Message(
-      conversationId: '', role: 'user',
-      content: newUserMessage, imagePaths: imagePaths,
+      conversationId: '',
+      role: 'user',
+      content: newUserMessage,
+      imagePaths: imagePaths,
     );
     messages.add(userMsg.toOpenAIMessage());
 
@@ -152,7 +159,8 @@ class AiService {
         data: body,
         options: Options(headers: config.allHeaders),
       );
-      final content = resp.data['choices']?[0]?['message']?['content'] as String?;
+      final content =
+          resp.data['choices']?[0]?['message']?['content'] as String?;
       if (content != null) yield content;
     } on DioException catch (e) {
       final msg = switch (e.type) {
@@ -171,12 +179,17 @@ class AiService {
     }
   }
 
-  Future<({String? content, List<Map<String, dynamic>>? toolCalls})> chatWithTools({
+  Future<({String? content, List<Map<String, dynamic>>? toolCalls})>
+      chatWithTools({
     required List<Map<String, dynamic>> messages,
     required List<Map<String, dynamic>> tools,
+    String? overrideModel,
   }) async {
+    final model = (overrideModel != null && overrideModel.isNotEmpty)
+        ? overrideModel
+        : config.modelName;
     final body = <String, dynamic>{
-      'model': config.modelName,
+      'model': model,
       'messages': messages,
       'tools': tools,
       'tool_choice': 'auto',
@@ -192,6 +205,10 @@ class AiService {
         ),
       );
 
+      if (resp.statusCode == 400 || resp.statusCode == 422) {
+        throw AiException('该模型/接口不支持工具调用 (HTTP ${resp.statusCode})');
+      }
+
       final choice = resp.data['choices']?[0]?['message'];
       if (choice == null) throw AiException('Empty response from API');
 
@@ -205,6 +222,9 @@ class AiService {
 
       return (content: content, toolCalls: toolCalls);
     } on DioException catch (e) {
+      if (e.response?.statusCode == 400 || e.response?.statusCode == 422) {
+        throw AiException('该模型/接口不支持工具调用 (HTTP ${e.response?.statusCode})');
+      }
       final msg = switch (e.type) {
         DioExceptionType.connectionTimeout => '连接超时',
         DioExceptionType.receiveTimeout => '响应超时',
@@ -213,7 +233,7 @@ class AiService {
         _ => switch (e.response?.statusCode) {
             401 => 'API Key 无效',
             429 => '请求太频繁',
-            _ => '请求失败(${e.response?.statusCode})',
+            _ => '请求失败(${e.response?.statusCode}): ${e.message}',
           },
       };
       throw AiException(msg);

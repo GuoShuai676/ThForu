@@ -1,4 +1,4 @@
-﻿import 'database_helper.dart';
+import 'database_helper.dart';
 import '../models/conversation.dart';
 
 class ConversationDao {
@@ -7,7 +7,11 @@ class ConversationDao {
     final maps = await db.query('conversations', orderBy: 'updated_at DESC');
     return maps
         .map((m) {
-          try { return Conversation.fromMap(m); } catch (_) { return null; }
+          try {
+            return Conversation.fromMap(m);
+          } catch (_) {
+            return null;
+          }
         })
         .whereType<Conversation>()
         .toList();
@@ -15,7 +19,8 @@ class ConversationDao {
 
   Future<Conversation?> getById(String id) async {
     final db = await DatabaseHelper.database;
-    final maps = await db.query('conversations', where: 'id = ?', whereArgs: [id]);
+    final maps =
+        await db.query('conversations', where: 'id = ?', whereArgs: [id]);
     if (maps.isEmpty) return null;
     return Conversation.fromMap(maps.first);
   }
@@ -27,7 +32,8 @@ class ConversationDao {
 
   Future<void> update(Conversation conv) async {
     final db = await DatabaseHelper.database;
-    await db.update('conversations', conv.toMap(), where: 'id = ?', whereArgs: [conv.id]);
+    await db.update('conversations', conv.toMap(),
+        where: 'id = ?', whereArgs: [conv.id]);
   }
 
   Future<void> delete(String id) async {
@@ -55,7 +61,8 @@ class ConversationDao {
     );
   }
 
-  Future<void> updateModel(String id, String modelName, String? reasoningEffort) async {
+  Future<void> updateModel(
+      String id, String modelName, String? reasoningEffort) async {
     final db = await DatabaseHelper.database;
     await db.update(
       'conversations',

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'state/providers.dart';
 import 'screens/main_screen.dart';
@@ -26,9 +26,8 @@ class AIApp extends ConsumerWidget {
         backgroundColor: brightness == Brightness.light
             ? const Color(0xFFF8F9FA)
             : const Color(0xFF121212),
-        foregroundColor: brightness == Brightness.light
-            ? const Color(0xFF1A1A1A)
-            : null,
+        foregroundColor:
+            brightness == Brightness.light ? const Color(0xFF1A1A1A) : null,
         surfaceTintColor: Colors.transparent,
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -37,23 +36,29 @@ class AIApp extends ConsumerWidget {
             : const Color(0xFF121212),
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        indicatorColor: brightness == Brightness.light ? const Color(0xFF2196F3) : null,
+        indicatorColor:
+            brightness == Brightness.light ? const Color(0xFF2196F3) : null,
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: brightness == Brightness.light ? Colors.white : const Color(0xFF1E1E1E),
+        color: brightness == Brightness.light
+            ? Colors.white
+            : const Color(0xFF1E1E1E),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: brightness == Brightness.light ? Colors.white : const Color(0xFF1E1E1E),
+        fillColor: brightness == Brightness.light
+            ? Colors.white
+            : const Color(0xFF1E1E1E),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
@@ -82,7 +87,8 @@ class AIApp extends ConsumerWidget {
               final convId = args['conversationId'] as String? ?? '';
               final msgId = args['messageId'] as String?;
               return MaterialPageRoute(
-                builder: (_) => ChatScreen(conversationId: convId, scrollToMessageId: msgId),
+                builder: (_) => ChatScreen(
+                    conversationId: convId, scrollToMessageId: msgId),
               );
             } else if (args is String) {
               return MaterialPageRoute(

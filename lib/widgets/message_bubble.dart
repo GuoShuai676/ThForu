@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -157,7 +157,9 @@ class MessageBubble extends StatelessWidget {
                 onToggleFavorite?.call();
               },
             ),
-            if (message.role == 'assistant' && message.content.isNotEmpty && !message.content.startsWith('错误:'))
+            if (message.role == 'assistant' &&
+                message.content.isNotEmpty &&
+                !message.content.startsWith('错误:'))
               ListTile(
                 leading: const Icon(Icons.refresh),
                 title: const Text('重新生成'),
@@ -261,9 +263,11 @@ class MessageBubble extends StatelessWidget {
       isUser: isUser,
       child: RepaintBoundary(
         child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        child: isUser ? _buildUserRow(context, theme, isMatch) : _buildAssistantColumn(context, theme, isMatch),
-      ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: isUser
+              ? _buildUserRow(context, theme, isMatch)
+              : _buildAssistantColumn(context, theme, isMatch),
+        ),
       ),
     );
   }
@@ -277,13 +281,22 @@ class MessageBubble extends StatelessWidget {
           GestureDetector(
             onTap: onToggleSelect,
             child: Container(
-              width: 24, height: 24, margin: const EdgeInsets.only(right: 6),
+              width: 24,
+              height: 24,
+              margin: const EdgeInsets.only(right: 6),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isSelected ? theme.colorScheme.primary : Colors.transparent,
-                border: Border.all(color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outline, width: 2),
+                color:
+                    isSelected ? theme.colorScheme.primary : Colors.transparent,
+                border: Border.all(
+                    color: isSelected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.outline,
+                    width: 2),
               ),
-              child: isSelected ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+              child: isSelected
+                  ? const Icon(Icons.check, size: 16, color: Colors.white)
+                  : null,
             ),
           ),
         Flexible(
@@ -299,82 +312,102 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildAssistantColumn(BuildContext context, ThemeData theme, bool isMatch) {
+  Widget _buildAssistantColumn(
+      BuildContext context, ThemeData theme, bool isMatch) {
     final state = isStreaming ? AssistantState.streaming : assistantState;
     final avIcon = assistantIcon ?? Icons.smart_toy;
     final avColor = assistantColor ?? const Color(0xFF6366F1);
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 4),
-          child: Row(
+          padding: const EdgeInsets.only(top: 2),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               AssistantAvatar(
                 icon: avIcon,
                 color: avColor,
-                size: 28,
+                size: 32,
                 state: state,
               ),
-              const SizedBox(width: 8),
-              Text(
-                assistantName ?? 'AI',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: avColor,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
-              if (multiSelectMode) ...[
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: onToggleSelect,
-                  child: Container(
-                    width: 22, height: 22,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isSelected ? theme.colorScheme.primary : Colors.transparent,
-                      border: Border.all(color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outline, width: 2),
-                    ),
-                    child: isSelected ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
-                  ),
-                ),
-              ],
             ],
           ),
         ),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(width: 4),
-            Flexible(
-              child: GestureDetector(
-                onLongPress: multiSelectMode ? onToggleSelect : () => _showContextMenu(context),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                assistantName ?? 'AI 助手',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: avColor,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              GestureDetector(
+                onLongPress: multiSelectMode
+                    ? onToggleSelect
+                    : () => _showContextMenu(context),
                 child: _buildBubble(context, theme, isMatch, isUser: false),
               ),
-            ),
-          ],
+              if (multiSelectMode)
+                GestureDetector(
+                  onTap: onToggleSelect,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    margin: const EdgeInsets.only(top: 4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : Colors.transparent,
+                      border: Border.all(
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline,
+                          width: 2),
+                    ),
+                    child: isSelected
+                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                        : null,
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildBubble(BuildContext context, ThemeData theme, bool isMatch, {required bool isUser}) {
+  Widget _buildBubble(BuildContext context, ThemeData theme, bool isMatch,
+      {required bool isUser}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         gradient: isCurrentSearchMatch
-            ? LinearGradient(colors: [Colors.amber.withValues(alpha: 0.4), Colors.amber.withValues(alpha: 0.2)])
+            ? LinearGradient(colors: [
+                Colors.amber.withValues(alpha: 0.4),
+                Colors.amber.withValues(alpha: 0.2)
+              ])
             : isMatch
-                ? LinearGradient(colors: [Colors.amber.withValues(alpha: 0.15), Colors.amber.withValues(alpha: 0.08)])
+                ? LinearGradient(colors: [
+                    Colors.amber.withValues(alpha: 0.15),
+                    Colors.amber.withValues(alpha: 0.08)
+                  ])
                 : isUser
                     ? LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
                           theme.colorScheme.primaryContainer,
-                          theme.colorScheme.primaryContainer.withValues(alpha: 0.7),
+                          theme.colorScheme.primaryContainer
+                              .withValues(alpha: 0.7),
                         ],
                       )
                     : null,
@@ -394,18 +427,17 @@ class MessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(18),
           topRight: const Radius.circular(18),
-          bottomLeft: isUser
-              ? const Radius.circular(18)
-              : const Radius.circular(4),
-          bottomRight: isUser
-              ? const Radius.circular(4)
-              : const Radius.circular(18),
+          bottomLeft:
+              isUser ? const Radius.circular(18) : const Radius.circular(4),
+          bottomRight:
+              isUser ? const Radius.circular(4) : const Radius.circular(18),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (message.metadata != null && message.metadata!['replyToId'] != null)
+          if (message.metadata != null &&
+              message.metadata!['replyToId'] != null)
             GestureDetector(
               onTap: () {
                 final targetId = message.metadata!['replyToId'] as String;
@@ -415,18 +447,23 @@ class MessageBubble extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                  color:
+                      theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.reply, size: 14, color: theme.colorScheme.outline),
+                    Icon(Icons.reply,
+                        size: 14, color: theme.colorScheme.outline),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        (message.metadata!['replyPreview'] as String? ?? '').length > 40
+                        (message.metadata!['replyPreview'] as String? ?? '')
+                                    .length >
+                                40
                             ? '${(message.metadata!['replyPreview'] as String).substring(0, 40)}...'
-                            : (message.metadata!['replyPreview'] as String? ?? ''),
+                            : (message.metadata!['replyPreview'] as String? ??
+                                ''),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -461,16 +498,14 @@ class MessageBubble extends StatelessWidget {
             if (message.content.isNotEmpty) const SizedBox(height: 8),
           ],
           if (message.hasFile) ...[
-            _FileAttachmentBubble(
-              fileName: message.fileName ?? '文件',
-              theme: theme,
-            ),
+            ...message.allFileNames.map(
+                (name) => _FileAttachmentBubble(fileName: name, theme: theme)),
             if (message.content.isNotEmpty) const SizedBox(height: 8),
           ],
           if (isUser)
             Text(message.content,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer))
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.onPrimaryContainer))
           else if (isStreaming && message.content.isEmpty)
             _TypingIndicator(theme: theme)
           else if (isStreaming)
@@ -484,8 +519,8 @@ class MessageBubble extends StatelessWidget {
                 data: message.content,
                 selectable: true,
                 styleSheet: MarkdownStyleSheet(
-                  p: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface),
+                  p: theme.textTheme.bodyMedium
+                      ?.copyWith(color: theme.colorScheme.onSurface),
                   code: theme.textTheme.bodySmall?.copyWith(
                     backgroundColor: theme.colorScheme.surface,
                     fontFamily: 'monospace',
@@ -517,8 +552,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildExpertResponse(BuildContext context, ThemeData theme) {
-    final providerName =
-        message.metadata?['providerName'] as String? ?? '未知来源';
+    final providerName = message.metadata?['providerName'] as String? ?? '未知来源';
     final isEmpty = message.content.isEmpty;
 
     return Padding(
@@ -585,8 +619,8 @@ class _StreamingContent extends StatelessWidget {
     final splitAt = _latexSplitOffset(content);
 
     final mdStyle = MarkdownStyleSheet(
-      p: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurface),
+      p: theme.textTheme.bodyMedium
+          ?.copyWith(color: theme.colorScheme.onSurface),
       code: theme.textTheme.bodySmall?.copyWith(
         backgroundColor: theme.colorScheme.surface,
         fontFamily: 'monospace',
@@ -628,10 +662,13 @@ class _StreamingContent extends StatelessWidget {
               styleSheet: mdStyle,
             ),
           ),
-        Text.rich(TextSpan(children: [
-          TextSpan(text: tailPart),
-          const WidgetSpan(child: StreamingCursor()),
-        ], style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface))),
+        Text.rich(TextSpan(
+            children: [
+              TextSpan(text: tailPart),
+              const WidgetSpan(child: StreamingCursor()),
+            ],
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: theme.colorScheme.onSurface))),
       ],
     );
   }
@@ -784,7 +821,11 @@ class _TypingIndicatorState extends State<_TypingIndicator>
           listenable: _controller,
           builder: (_, __) {
             final phase = (_controller.value * 3.0 - i * 0.8) % 3.0;
-            final t = phase < 0 ? 0.0 : (phase > 1.0 ? (phase < 2.0 ? 1.0 - (phase - 1.0) : 0.0) : phase);
+            final t = phase < 0
+                ? 0.0
+                : (phase > 1.0
+                    ? (phase < 2.0 ? 1.0 - (phase - 1.0) : 0.0)
+                    : phase);
             final smooth = t * t * (3.0 - 2.0 * t);
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2.5),
@@ -874,10 +915,25 @@ class _FileAttachmentBubble extends StatelessWidget {
       'mp3' || 'wav' || 'flac' || 'aac' || 'ogg' => Icons.audio_file,
       'mp4' || 'avi' || 'mkv' || 'mov' || 'wmv' => Icons.video_file,
       'txt' || 'md' || 'log' => Icons.article,
-      'py' || 'js' || 'ts' || 'dart' || 'java' || 'c' || 'cpp' || 'h' => Icons.code,
+      'py' ||
+      'js' ||
+      'ts' ||
+      'dart' ||
+      'java' ||
+      'c' ||
+      'cpp' ||
+      'h' =>
+        Icons.code,
       'json' || 'xml' || 'yaml' || 'yml' || 'toml' => Icons.data_object,
       'html' || 'css' || 'htm' => Icons.language,
-      'jpg' || 'jpeg' || 'png' || 'gif' || 'bmp' || 'webp' || 'svg' => Icons.image,
+      'jpg' ||
+      'jpeg' ||
+      'png' ||
+      'gif' ||
+      'bmp' ||
+      'webp' ||
+      'svg' =>
+        Icons.image,
       _ => Icons.insert_drive_file,
     };
   }

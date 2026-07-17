@@ -9,7 +9,8 @@ class ToolRegistry {
   final Set<String> _enabledTools;
 
   ToolRegistry(MemoryDao memoryDao, {Set<String>? enabledTools})
-      : _enabledTools = enabledTools ?? {'terminal', 'web_search', 'memory', 'datetime'};
+      : _enabledTools =
+            enabledTools ?? {'terminal', 'web_search', 'memory', 'datetime'};
 
   static const _allDefinitions = <String, ToolDefinition>{
     'terminal': TerminalTool.definition,

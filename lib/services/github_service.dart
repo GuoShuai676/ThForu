@@ -9,12 +9,20 @@ class RepoFile {
   final int size;
   final String language;
 
-  RepoFile({required this.path, required this.content, required this.size, required this.language});
+  RepoFile(
+      {required this.path,
+      required this.content,
+      required this.size,
+      required this.language});
 
-  Map<String, dynamic> toJson() => {'path': path, 'content': content, 'size': size, 'language': language};
+  Map<String, dynamic> toJson() =>
+      {'path': path, 'content': content, 'size': size, 'language': language};
 
-  factory RepoFile.fromJson(Map<String, dynamic> j) =>
-      RepoFile(path: j['path'], content: j['content'], size: j['size'], language: j['language']);
+  factory RepoFile.fromJson(Map<String, dynamic> j) => RepoFile(
+      path: j['path'],
+      content: j['content'],
+      size: j['size'],
+      language: j['language']);
 }
 
 class CodeChunk {
@@ -25,18 +33,31 @@ class CodeChunk {
   final String? symbolName;
   final String? symbolType;
 
-  CodeChunk({required this.id, required this.filePath, required this.language, required this.content, this.symbolName, this.symbolType});
+  CodeChunk(
+      {required this.id,
+      required this.filePath,
+      required this.language,
+      required this.content,
+      this.symbolName,
+      this.symbolType});
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'filePath': filePath, 'language': language, 'content': content,
-    if (symbolName != null) 'symbolName': symbolName,
-    if (symbolType != null) 'symbolType': symbolType,
-  };
+        'id': id,
+        'filePath': filePath,
+        'language': language,
+        'content': content,
+        if (symbolName != null) 'symbolName': symbolName,
+        if (symbolType != null) 'symbolType': symbolType,
+      };
 
   factory CodeChunk.fromJson(Map<String, dynamic> j) => CodeChunk(
-    id: j['id'], filePath: j['filePath'], language: j['language'], content: j['content'],
-    symbolName: j['symbolName'], symbolType: j['symbolType'],
-  );
+        id: j['id'],
+        filePath: j['filePath'],
+        language: j['language'],
+        content: j['content'],
+        symbolName: j['symbolName'],
+        symbolType: j['symbolType'],
+      );
 }
 
 class GitHubRepo {
@@ -61,18 +82,30 @@ class GitHubRepo {
   }) : connectedAt = connectedAt ?? DateTime.now();
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'owner': owner, 'repo': repo, 'token': token,
-    'status': status, 'fileCount': fileCount,
-    'connectedAt': connectedAt.toIso8601String(),
-    'chunks': chunks.map((c) => c.toJson()).toList(),
-  };
+        'id': id,
+        'owner': owner,
+        'repo': repo,
+        'token': token,
+        'status': status,
+        'fileCount': fileCount,
+        'connectedAt': connectedAt.toIso8601String(),
+        'chunks': chunks.map((c) => c.toJson()).toList(),
+      };
 
   factory GitHubRepo.fromJson(Map<String, dynamic> j) => GitHubRepo(
-    id: j['id'], owner: j['owner'], repo: j['repo'], token: j['token'],
-    status: j['status'] ?? 'pending', fileCount: j['fileCount'] ?? 0,
-    connectedAt: DateTime.tryParse(j['connectedAt'] ?? '') ?? DateTime.now(),
-    chunks: (j['chunks'] as List?)?.map((c) => CodeChunk.fromJson(c)).toList() ?? [],
-  );
+        id: j['id'],
+        owner: j['owner'],
+        repo: j['repo'],
+        token: j['token'],
+        status: j['status'] ?? 'pending',
+        fileCount: j['fileCount'] ?? 0,
+        connectedAt:
+            DateTime.tryParse(j['connectedAt'] ?? '') ?? DateTime.now(),
+        chunks: (j['chunks'] as List?)
+                ?.map((c) => CodeChunk.fromJson(c))
+                .toList() ??
+            [],
+      );
 }
 
 class GitHubService {
@@ -81,20 +114,69 @@ class GitHubService {
   static final _dio = Dio();
 
   static const _codeExtensions = {
-    'dart', 'java', 'kt', 'py', 'js', 'ts', 'jsx', 'tsx', 'c', 'cpp', 'h', 'hpp',
-    'cs', 'go', 'rs', 'swift', 'rb', 'php', 'html', 'css', 'scss', 'json', 'yaml', 'yml', 'xml', 'md', 'sql', 'sh', 'bash',
+    'dart',
+    'java',
+    'kt',
+    'py',
+    'js',
+    'ts',
+    'jsx',
+    'tsx',
+    'c',
+    'cpp',
+    'h',
+    'hpp',
+    'cs',
+    'go',
+    'rs',
+    'swift',
+    'rb',
+    'php',
+    'html',
+    'css',
+    'scss',
+    'json',
+    'yaml',
+    'yml',
+    'xml',
+    'md',
+    'sql',
+    'sh',
+    'bash',
   };
 
   static String _detectLanguage(String path) {
     final ext = path.split('.').last.toLowerCase();
     const map = {
-      'dart': 'Dart', 'java': 'Java', 'kt': 'Kotlin', 'py': 'Python',
-      'js': 'JavaScript', 'ts': 'TypeScript', 'jsx': 'React JSX', 'tsx': 'React TSX',
-      'c': 'C', 'cpp': 'C++', 'h': 'C/C++ Header', 'hpp': 'C++ Header',
-      'cs': 'C#', 'go': 'Go', 'rs': 'Rust', 'swift': 'Swift',
-      'rb': 'Ruby', 'php': 'PHP', 'html': 'HTML', 'css': 'CSS', 'scss': 'SCSS',
-      'json': 'JSON', 'yaml': 'YAML', 'yml': 'YAML', 'xml': 'XML',
-      'md': 'Markdown', 'sql': 'SQL', 'sh': 'Shell', 'bash': 'Shell',
+      'dart': 'Dart',
+      'java': 'Java',
+      'kt': 'Kotlin',
+      'py': 'Python',
+      'js': 'JavaScript',
+      'ts': 'TypeScript',
+      'jsx': 'React JSX',
+      'tsx': 'React TSX',
+      'c': 'C',
+      'cpp': 'C++',
+      'h': 'C/C++ Header',
+      'hpp': 'C++ Header',
+      'cs': 'C#',
+      'go': 'Go',
+      'rs': 'Rust',
+      'swift': 'Swift',
+      'rb': 'Ruby',
+      'php': 'PHP',
+      'html': 'HTML',
+      'css': 'CSS',
+      'scss': 'SCSS',
+      'json': 'JSON',
+      'yaml': 'YAML',
+      'yml': 'YAML',
+      'xml': 'XML',
+      'md': 'Markdown',
+      'sql': 'SQL',
+      'sh': 'Shell',
+      'bash': 'Shell',
     };
     return map[ext] ?? ext.toUpperCase();
   }
@@ -119,17 +201,25 @@ class GitHubService {
     }
 
     final symbolPatterns = <RegExp>[
-      RegExp(r'^(?:class|abstract\s+class|interface|enum|extension|mixin)\s+(\w+)', multiLine: true),
-      RegExp(r'^(?:void|Future|Stream|int|String|bool|double|List|Map|Widget|State|dynamic)\s+(\w+)\s*\(', multiLine: true),
+      RegExp(
+          r'^(?:class|abstract\s+class|interface|enum|extension|mixin)\s+(\w+)',
+          multiLine: true),
+      RegExp(
+          r'^(?:void|Future|Stream|int|String|bool|double|List|Map|Widget|State|dynamic)\s+(\w+)\s*\(',
+          multiLine: true),
       RegExp(r'^(?:fun|def|function|fn)\s+(\w+)', multiLine: true),
-      RegExp(r'^(?:pub|private|protected|internal)\s+(?:fun|val|var|class)\s+(\w+)', multiLine: true),
+      RegExp(
+          r'^(?:pub|private|protected|internal)\s+(?:fun|val|var|class)\s+(\w+)',
+          multiLine: true),
     ];
 
     final symbols = <_Symbol>[];
     for (final pattern in symbolPatterns) {
       for (final match in pattern.allMatches(file.content)) {
-        final lineNum = file.content.substring(0, match.start).split('\n').length - 1;
-        symbols.add(_Symbol(name: match.group(1) ?? 'unknown', startLine: lineNum));
+        final lineNum =
+            file.content.substring(0, match.start).split('\n').length - 1;
+        symbols.add(
+            _Symbol(name: match.group(1) ?? 'unknown', startLine: lineNum));
       }
     }
     symbols.sort((a, b) => a.startLine.compareTo(b.startLine));
@@ -149,7 +239,8 @@ class GitHubService {
 
     for (int i = 0; i < symbols.length; i++) {
       final start = symbols[i].startLine;
-      final end = i + 1 < symbols.length ? symbols[i + 1].startLine : lines.length;
+      final end =
+          i + 1 < symbols.length ? symbols[i + 1].startLine : lines.length;
       final chunkLines = lines.sublist(start, end.clamp(start, lines.length));
       if (chunkLines.length > 100) {
         chunks.add(CodeChunk(
@@ -193,7 +284,8 @@ class GitHubService {
 
   static Future<void> saveRepos(List<GitHubRepo> repos) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, jsonEncode(repos.map((r) => r.toJson()).toList()));
+    await prefs.setString(
+        _prefsKey, jsonEncode(repos.map((r) => r.toJson()).toList()));
   }
 
   static Future<GitHubRepo?> getActiveRepo() async {
@@ -227,7 +319,9 @@ class GitHubService {
     final repos = await loadRepos();
     final id = '$owner/$repo';
     final existing = repos.where((r) => r.id == id).toList();
-    final repoObj = existing.isNotEmpty ? existing.first : GitHubRepo(id: id, owner: owner, repo: repo, token: token);
+    final repoObj = existing.isNotEmpty
+        ? existing.first
+        : GitHubRepo(id: id, owner: owner, repo: repo, token: token);
 
     repoObj.status = 'fetching';
     repoObj.fileCount = 0;
@@ -264,10 +358,13 @@ class GitHubService {
         }
       }
 
-      final treeData = branch == 'main' ? treeResp.data : (await _dio.get(
-        'https://api.github.com/repos/$owner/$repo/git/trees/$branch?recursive=1',
-        options: Options(headers: headers),
-      )).data;
+      final treeData = branch == 'main'
+          ? treeResp.data
+          : (await _dio.get(
+              'https://api.github.com/repos/$owner/$repo/git/trees/$branch?recursive=1',
+              options: Options(headers: headers),
+            ))
+              .data;
 
       final tree = (treeData['tree'] as List)
           .where((item) => item['type'] == 'blob' && _isCodeFile(item['path']))
@@ -286,8 +383,10 @@ class GitHubService {
             options: Options(headers: headers),
           );
 
-          if (contentResp.statusCode == 200 && contentResp.data['content'] != null) {
-            final content = utf8.decode(base64Decode(contentResp.data['content'].replaceAll('\n', '')));
+          if (contentResp.statusCode == 200 &&
+              contentResp.data['content'] != null) {
+            final content = utf8.decode(
+                base64Decode(contentResp.data['content'].replaceAll('\n', '')));
             final file = RepoFile(
               path: item['path'],
               content: content,
@@ -324,7 +423,11 @@ class GitHubService {
   }
 
   static List<CodeChunk> searchCode(String query, {int maxResults = 5}) {
-    final keywords = query.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length > 1).toList();
+    final keywords = query
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length > 1)
+        .toList();
     if (keywords.isEmpty) return [];
 
     final allChunks = <CodeChunk>[];
@@ -335,8 +438,14 @@ class GitHubService {
     return []; // Will be called with loaded repos
   }
 
-  static Future<List<CodeChunk>> searchInRepos(String query, List<GitHubRepo> repos, {int maxResults = 5}) async {
-    final keywords = query.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length > 1).toList();
+  static Future<List<CodeChunk>> searchInRepos(
+      String query, List<GitHubRepo> repos,
+      {int maxResults = 5}) async {
+    final keywords = query
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length > 1)
+        .toList();
     if (keywords.isEmpty) return [];
 
     final scored = <_ScoredChunk>[];
@@ -388,5 +497,6 @@ class _ScoredChunk {
   final CodeChunk chunk;
   final int score;
   final String repoId;
-  _ScoredChunk({required this.chunk, required this.score, required this.repoId});
+  _ScoredChunk(
+      {required this.chunk, required this.score, required this.repoId});
 }

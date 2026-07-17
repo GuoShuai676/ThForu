@@ -12,7 +12,8 @@ class AudioService {
 
   Future<void> startRecording() async {
     final dir = await getApplicationDocumentsDirectory();
-    _recordingPath = p.join(dir.path, 'voice_${DateTime.now().millisecondsSinceEpoch}.wav');
+    _recordingPath =
+        p.join(dir.path, 'voice_${DateTime.now().millisecondsSinceEpoch}.wav');
     await _recorder.start(
       const RecordConfig(encoder: AudioEncoder.wav),
       path: _recordingPath!,
@@ -24,7 +25,9 @@ class AudioService {
     return path;
   }
 
-  Stream<double> get amplitude => _recorder.onAmplitudeChanged(const Duration(milliseconds: 100)).map((a) => a.current);
+  Stream<double> get amplitude => _recorder
+      .onAmplitudeChanged(const Duration(milliseconds: 100))
+      .map((a) => a.current);
 
   Future<void> dispose() async {
     await _recorder.dispose();

@@ -1,69 +1,99 @@
-import 'dart:convert';
-import 'dart:io';
+import 'dart:async';
+import '../services/terminal/terminal_runner.dart';
+import '../services/terminal/terminal_policy.dart';
 import 'tool_definition.dart';
 
 class TerminalTool {
+  static TerminalRunner? _sharedRunner;
+  static TerminalPolicy _policy = const TerminalPolicy(
+    mode: TerminalMode.sandboxOnly,
+    permissions: {},
+  );
+
   static const definition = ToolDefinition(
     name: 'terminal',
-    description: 'Execute a shell command on the local system. Returns stdout and stderr. '
-        'Use for file operations, system info, running scripts, git commands, etc. '
-        'Commands run in the user\'s home directory.',
+    description: 'Execute a shell command in the app sandbox terminal. '
+        'Built-in commands: cd, pwd, ls, cat, mkdir, touch, write, append, rm, clear. '
+        'Use for file operations, system info, directory listing, reading/writing files. '
+        'Commands run in the app documents directory.',
     parameters: {
       'type': 'object',
       'properties': {
         'command': {
           'type': 'string',
-          'description': 'The shell command to execute',
+          'description': 'The command to execute',
         },
       },
       'required': ['command'],
     },
   );
 
-  static Future<ToolResult> execute(String toolCallId, Map<String, dynamic> args) async {
+  static Future<void> init({TerminalPolicy? policy}) async {
+    if (policy != null) _policy = policy;
+    _sharedRunner = await TerminalRunner.create(policy: _policy);
+  }
+
+  static void updatePolicy(TerminalPolicy policy) {
+    _policy = policy;
+    _sharedRunner?.updatePolicy(policy);
+  }
+
+  static TerminalRunner? get runner => _sharedRunner;
+
+  static Future<ToolResult> execute(
+      String toolCallId, Map<String, dynamic> args) async {
     final command = args['command'] as String? ?? '';
     if (command.isEmpty) {
-      return ToolResult(toolCallId: toolCallId, name: definition.name, output: 'Error: empty command', isError: true);
-    }
-
-    try {
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-      ProcessResult result;
-
-      if (Platform.isWindows) {
-        result = await Process.run('cmd', ['/c', command], workingDirectory: home);
-      } else {
-        result = await Process.run('/bin/sh', ['-c', command], workingDirectory: home);
-      }
-
-      final stdout = (result.stdout as String).trim();
-      final stderr = (result.stderr as String).trim();
-      final exitCode = result.exitCode;
-
-      final buf = StringBuffer();
-      if (stdout.isNotEmpty) buf.writeln(stdout);
-      if (stderr.isNotEmpty) {
-        buf.writeln('[stderr] $stderr');
-      }
-      buf.writeln('[exit code: $exitCode]');
-
-      var output = buf.toString();
-      if (output.length > 8000) {
-        output = output.substring(0, 8000) + '\n... (truncated)';
-      }
-
       return ToolResult(
         toolCallId: toolCallId,
         name: definition.name,
-        output: output,
-        isError: exitCode != 0,
+        output: 'Error: empty command',
+        isError: true,
       );
-    } catch (e) {
-      return ToolResult(toolCallId: toolCallId, name: definition.name, output: 'Error: $e', isError: true);
     }
-  }
 
-  static Future<List<String>> commandHistory() async {
-    return [];
+    if (_sharedRunner == null) {
+      try {
+        await init();
+      } catch (e) {
+        return ToolResult(
+          toolCallId: toolCallId,
+          name: definition.name,
+          output: 'Terminal not available: $e',
+          isError: true,
+        );
+      }
+    }
+
+    final result = await _sharedRunner!.run(command);
+
+    final buf = StringBuffer();
+    if (result.blockedReason != null) {
+      buf.writeln('[BLOCKED] ${result.blockedReason}');
+    }
+    if (result.stdout.isNotEmpty) {
+      buf.writeln(result.stdout);
+    }
+    if (result.stderr.isNotEmpty) {
+      buf.writeln('[stderr] ${result.stderr}');
+    }
+    if (result.timedOut) {
+      buf.writeln('[timed out after ${result.duration.inSeconds}s]');
+    }
+    buf.writeln(
+        '[exit code: ${result.exitCode}, duration: ${result.duration.inMilliseconds}ms]');
+    buf.writeln('[cwd: ${result.cwd}]');
+
+    var output = buf.toString();
+    if (output.length > 8000) {
+      output = '${output.substring(0, 8000)}\n... (truncated)';
+    }
+
+    return ToolResult(
+      toolCallId: toolCallId,
+      name: definition.name,
+      output: output,
+      isError: !result.isSuccess,
+    );
   }
 }

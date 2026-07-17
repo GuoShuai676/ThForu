@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:dio/dio.dart';
 import '../models/provider_config.dart';
 import 'search_service.dart';
@@ -11,14 +11,21 @@ class DeepSearchProgress {
   final String message;
   final int current;
   final int total;
-  const DeepSearchProgress({required this.phase, required this.message, this.current = 0, this.total = 0});
+  const DeepSearchProgress(
+      {required this.phase,
+      required this.message,
+      this.current = 0,
+      this.total = 0});
 }
 
 class DeepSearchResult {
   final String summary;
   final String detailedReport;
   final List<String> sources;
-  DeepSearchResult({required this.summary, required this.detailedReport, required this.sources});
+  DeepSearchResult(
+      {required this.summary,
+      required this.detailedReport,
+      required this.sources});
 }
 
 class DeepSearchService {
@@ -30,7 +37,8 @@ class DeepSearchService {
   }) async* {
     final aiService = AiService(config);
 
-    onProgress?.call(const DeepSearchProgress(phase: DeepSearchPhase.decomposing, message: '正在拆解问题...'));
+    onProgress?.call(const DeepSearchProgress(
+        phase: DeepSearchPhase.decomposing, message: '正在拆解问题...'));
     final subQueries = await _decomposeQuery(query, aiService);
     if (isCancelled?.call() == true) return;
 
@@ -56,7 +64,10 @@ class DeepSearchService {
     final seen = <String>{};
     final uniqueResults = <SearchResult>[];
     for (final r in allResults) {
-      if (!seen.contains(r.url)) { seen.add(r.url); uniqueResults.add(r); }
+      if (!seen.contains(r.url)) {
+        seen.add(r.url);
+        uniqueResults.add(r);
+      }
     }
     final topResults = uniqueResults.take(10).toList();
 
@@ -73,7 +84,8 @@ class DeepSearchService {
     await _fetchPagesConcurrently(topResults, 3, isCancelled);
     if (isCancelled?.call() == true) return;
 
-    onProgress?.call(const DeepSearchProgress(phase: DeepSearchPhase.synthesizing, message: 'AI 正在综合分析...'));
+    onProgress?.call(const DeepSearchProgress(
+        phase: DeepSearchPhase.synthesizing, message: 'AI 正在综合分析...'));
     final sources = topResults.map((r) => '${r.title} (${r.url})').toList();
 
     final contextBuffer = StringBuffer();
@@ -107,13 +119,15 @@ class DeepSearchService {
       fullBuf.write(chunk);
       final content = fullBuf.toString();
       yield DeepSearchResult(
-        summary: content.length > 200 ? '${content.substring(0, 200)}...' : content,
+        summary:
+            content.length > 200 ? '${content.substring(0, 200)}...' : content,
         detailedReport: content,
         sources: sources,
       );
     }
 
-    onProgress?.call(const DeepSearchProgress(phase: DeepSearchPhase.done, message: '完成'));
+    onProgress?.call(
+        const DeepSearchProgress(phase: DeepSearchPhase.done, message: '完成'));
   }
 
   static Future<void> _fetchPagesConcurrently(
@@ -138,14 +152,17 @@ class DeepSearchService {
     await Future.wait(futures);
   }
 
-  static Future<List<String>> _decomposeQuery(String query, AiService aiService) async {
+  static Future<List<String>> _decomposeQuery(
+      String query, AiService aiService) async {
     final prompt = '请将以下问题拆解为3-5个具体的搜索子查询，每个子查询单独一行，不要编号，不要解释：\n\n$query';
     final buf = StringBuffer();
-    await for (final chunk in aiService.streamChat(history: [], newUserMessage: prompt)) {
+    await for (final chunk
+        in aiService.streamChat(history: [], newUserMessage: prompt)) {
       buf.write(chunk);
     }
     final result = buf.toString();
-    final queries = result.split('\n')
+    final queries = result
+        .split('\n')
         .map((l) => l.trim().replaceAll(RegExp(r'^\d+[\.\)、]\s*'), ''))
         .where((l) => l.isNotEmpty && l.length > 3)
         .toList();

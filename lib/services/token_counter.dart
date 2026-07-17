@@ -1,4 +1,4 @@
-﻿class TokenCounter {
+class TokenCounter {
   static int estimateTokens(String text) {
     if (text.isEmpty) return 0;
     final charCount = text.length;

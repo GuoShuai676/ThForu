@@ -36,7 +36,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   Future<void> loadMessages() async {
+    // Never overwrite state while a send/stream is in progress —
+    // the DB may contain only partial content from the last 2 s flush.
+    if (_activeRunId != 0) return;
     final msgs = await _messageDao.getByConversation(conversationId);
+    // Double-check after the await — a stream may have started while we
+    // were waiting for the DB query.
+    if (_activeRunId != 0) return;
     state = ChatState(
       messages: msgs,
       isStreaming: state.isStreaming,
@@ -224,7 +230,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     try {
       final relevantMemories = await _memoryDao.getRelevant(text, limit: 5);
       if (relevantMemories.isNotEmpty) {
-        final memBuf = StringBuffer('浠ヤ笅鏄綘瀵圭敤鎴风殑璁板繂锛岃鍦ㄥ洖绛旀椂鍙傝€冿細\n');
+        final memBuf = StringBuffer('以下是你对用户的记忆，请在回答时参考：\n');
         for (final m in relevantMemories) {
           memBuf.writeln('- ${m.key}: ${m.value}');
         }
@@ -422,7 +428,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
             ? toolFinalContent!.trim()
             : '工具已执行，但模型没有返回最终回答。请查看上方工具结果。';
         await _messageDao.updateContent(conversationId, assistantMsg.id, content);
-        state = ChatState(
+        state = state.copyWith(
           messages: _updateMessageInState(assistantMsg.id, content),
           isStreaming: false,
         );
@@ -461,23 +467,21 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
         if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
           _lastUiUpdate = now;
-          try {
-            final content = fullBuf.toString();
-            if (_activeRunId != myRunId) return;
-            state = ChatState(
-                messages: _updateMessageInState(assistantMsg.id, content),
-                isStreaming: true);
-          } catch (_) {}
+          final content = fullBuf.toString();
+          if (_activeRunId != myRunId) return;
+          state = state.copyWith(
+            messages: _updateMessageInState(assistantMsg.id, content),
+            isStreaming: true,
+          );
         }
       }
 
       if (_activeRunId != myRunId) return;
-      try {
-        final content = fullBuf.toString();
-        state = ChatState(
-            messages: _updateMessageInState(assistantMsg.id, content),
-            isStreaming: false);
-      } catch (_) {}
+      final content = fullBuf.toString();
+      state = state.copyWith(
+        messages: _updateMessageInState(assistantMsg.id, content),
+        isStreaming: false,
+      );
     } on AiException catch (e) {
       if (_activeRunId != myRunId) {
         WakelockPlus.disable();
@@ -485,14 +489,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
       }
       await _messageDao.updateContent(
           conversationId, assistantMsg.id, '错误：${e.message}');
-      try {
-        state = ChatState(
-          messages: _updateMessageInState(assistantMsg.id, '错误：${e.message}'),
-          isStreaming: false,
-          errorMessage: e.message,
-          toolExecutions: const [],
-        );
-      } catch (_) {}
+      state = state.copyWith(
+        messages: _updateMessageInState(assistantMsg.id, '错误：${e.message}'),
+        isStreaming: false,
+        errorMessage: e.message,
+        toolExecutions: const [],
+      );
     } catch (e) {
       if (_activeRunId != myRunId) {
         WakelockPlus.disable();
@@ -500,14 +502,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
       }
       await _messageDao.updateContent(
           conversationId, assistantMsg.id, '未知错误：$e');
-      try {
-        state = ChatState(
-          messages: _updateMessageInState(assistantMsg.id, '未知错误：$e'),
-          isStreaming: false,
-          errorMessage: e.toString(),
-          toolExecutions: const [],
-        );
-      } catch (_) {}
+      state = state.copyWith(
+        messages: _updateMessageInState(assistantMsg.id, '未知错误：$e'),
+        isStreaming: false,
+        errorMessage: e.toString(),
+        toolExecutions: const [],
+      );
     }
 
     await _updateConversationTime();
@@ -536,7 +536,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       final conv = await _conversationDao.getById(conversationId);
       if (conv != null && conv.title == 'New Chat') {
         final title =
-            '娣卞害鎼滅储: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
+            '深度搜索: ${text.trim().length > 25 ? '${text.trim().substring(0, 25)}...' : text.trim()}';
         await _conversationDao.updateTitle(conversationId, title);
       }
     } catch (_) {}
@@ -544,7 +544,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final userMsg = Message(
       conversationId: conversationId,
       role: 'user',
-      content: '馃攳 $text',
+      content: '[深度搜索] $text',
     );
     await _messageDao.insert(userMsg);
 
@@ -585,33 +585,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
         }
         if (now.difference(_lastUiUpdate).inMilliseconds > 80) {
           _lastUiUpdate = now;
-          try {
-            final content = fullBuf.toString();
-            state = ChatState(
-                messages: _updateMessageInState(assistantMsg.id, content),
-                isStreaming: true);
-          } catch (_) {}
+          final content = fullBuf.toString();
+          state = state.copyWith(
+            messages: _updateMessageInState(assistantMsg.id, content),
+            isStreaming: true,
+          );
         }
       }
 
       if (_activeRunId != myRunId) return;
       await _messageDao.updateContent(
           conversationId, assistantMsg.id, fullBuf.toString());
-      try {
-        final content = fullBuf.toString();
-        state = ChatState(
-            messages: _updateMessageInState(assistantMsg.id, content),
-            isStreaming: false);
-      } catch (_) {}
+      final content = fullBuf.toString();
+      state = state.copyWith(
+        messages: _updateMessageInState(assistantMsg.id, content),
+        isStreaming: false,
+      );
     } catch (e) {
-      final errContent = '娣卞害鎼滅储澶辫触: $e';
+      final errContent = '深度搜索失败: $e';
       await _messageDao.updateContent(
           conversationId, assistantMsg.id, errContent);
-      try {
-        state = ChatState(
-            messages: _updateMessageInState(assistantMsg.id, errContent),
-            isStreaming: false);
-      } catch (_) {}
+      state = state.copyWith(
+        messages: _updateMessageInState(assistantMsg.id, errContent),
+        isStreaming: false,
+      );
     }
 
     WakelockPlus.disable();
@@ -741,7 +738,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
 
     final hasSuccess = expertResults.values
-        .any((v) => !v.startsWith('閿欒:') && !v.startsWith('鏈煡閿欒:'));
+        .any((v) => !v.startsWith('错误:') && !v.startsWith('未知错误:'));
     if (!hasSuccess) {
       if (_activeRunId != myRunId) {
         WakelockPlus.disable();
@@ -751,7 +748,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
         messages: allMessages,
         isStreaming: false,
         expertPhase: ExpertPhase.none,
-        errorMessage: '鎵€鏈夊吋鍚姹傚け璐ワ紝璇锋鏌?API 閰嶇疆',
+        errorMessage: '所有兼听请求失败，请检查 API 配置',
       );
       WakelockPlus.disable();
       return;
@@ -859,14 +856,14 @@ class ChatNotifier extends StateNotifier<ChatState> {
         return;
       }
       await _messageDao.updateContent(
-          conversationId, gatewayPlaceholder.id, '缁煎悎澶辫触: ${e.message}');
+          conversationId, gatewayPlaceholder.id, '综合失败: ${e.message}');
       try {
         state = ChatState(
           messages: _updateMessageInState(
-              gatewayPlaceholder.id, '缁煎悎澶辫触: ${e.message}'),
+              gatewayPlaceholder.id, '综合失败: ${e.message}'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
-          errorMessage: '缃戝叧缁煎悎澶辫触: ${e.message}',
+          errorMessage: '网关综合失败: ${e.message}',
         );
       } catch (_) {}
     } catch (e) {
@@ -875,13 +872,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
         return;
       }
       await _messageDao.updateContent(
-          conversationId, gatewayPlaceholder.id, '缁煎悎澶辫触: $e');
+          conversationId, gatewayPlaceholder.id, '综合失败: $e');
       try {
         state = ChatState(
-          messages: _updateMessageInState(gatewayPlaceholder.id, '缁煎悎澶辫触: $e'),
+          messages: _updateMessageInState(gatewayPlaceholder.id, '综合失败: $e'),
           isStreaming: false,
           expertPhase: ExpertPhase.none,
-          errorMessage: '缃戝叧缁煎悎澶辫触: $e',
+          errorMessage: '网关综合失败: $e',
         );
       } catch (_) {}
     }
@@ -898,7 +895,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       imagePaths: imagePaths,
     );
     await _messageDao.insert(msg);
-    state = ChatState(messages: [...state.messages, msg]);
+    state = state.copyWith(messages: [...state.messages, msg]);
     return msg.id;
   }
 
@@ -909,7 +906,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
   Future<void> deleteMessage(String messageId) async {
     await _messageDao.deleteById(conversationId, messageId);
     final updated = state.messages.where((m) => m.id != messageId).toList();
-    state = ChatState(messages: updated);
+    state = state.copyWith(messages: updated);
   }
 
   Future<void> toggleFavorite(String messageId) async {
@@ -920,7 +917,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       }
       return m;
     }).toList();
-    state = ChatState(messages: updated);
+    state = state.copyWith(messages: updated);
   }
 
   Future<void> regenerateLastResponse({
@@ -948,7 +945,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     for (final m in toDelete) {
       await _messageDao.deleteById(conversationId, m.id);
     }
-    state = ChatState(messages: msgs.sublist(0, lastUserIdx + 1));
+    state = state.copyWith(messages: msgs.sublist(0, lastUserIdx + 1));
 
     await sendMessage(
       providerConfig: providerConfig,
@@ -975,7 +972,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     for (final m in toDelete) {
       await _messageDao.deleteById(conversationId, m.id);
     }
-    state = ChatState(messages: msgs.sublist(0, idx));
+    state = state.copyWith(messages: msgs.sublist(0, idx));
 
     await sendMessage(
       providerConfig: providerConfig,
